@@ -351,7 +351,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           status: resp.status,
           ms: Date.now() - t0,
           bytes: Number(resp.headers.get("content-length") ?? -1),
-          verdict: plugins.length ? "pass:" + plugins.length : undefined,
+          verdict: plugins?.length ? "pass:" + plugins.length : undefined,
         });
         if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
@@ -376,6 +376,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           dest: target,
           status: 0,
           ms: Date.now() - t0,
+          bytes: -1,
           err: String(err),
         });
         return new Response(`zeolite: upstream fetch failed: ${String(err)}`, {
