@@ -71,11 +71,15 @@ export function hostPatternMatches(pat: HostPattern, url: string): boolean {
     return u.protocol === "http:" || u.protocol === "https:" ||
       u.protocol === "ws:" || u.protocol === "wss:" || u.protocol === "ftp:";
   }
-  const schemeOk =
-    pat.scheme === "*" ||
-    pat.scheme + ":" === u.protocol ||
-    (pat.scheme === "https" && u.protocol === "http:") === false && false;
-  if (!schemeOk) return false;
+  /* "*" covers http/https/ws/wss/ftp; anything else must be exact. */
+  if (pat.scheme === "*") {
+    const ok =
+      u.protocol === "http:" || u.protocol === "https:" ||
+      u.protocol === "ws:" || u.protocol === "wss:" || u.protocol === "ftp:";
+    if (!ok) return false;
+  } else if (pat.scheme + ":" !== u.protocol) {
+    return false;
+  }
   const hostOk =
     pat.host === "*" ||
     u.hostname === pat.host ||
