@@ -10,7 +10,7 @@ so it talks to the engine through the SW control plane.
    request: timestamp, method, engine-local path, real destination,
    status, time-to-response-headers in ms, and the error string when
    the upstream fetch failed.
-2. The page polls `{ type: "lj:getNetLog" }` once per second over a
+2. The page polls `{ type: "zl:getNetLog" }` once per second over a
    MessageChannel and renders a sortable table. Polling (not push) is
    deliberate: no extra SW message fan-out, and a page that sleeps
    simply skips updates.

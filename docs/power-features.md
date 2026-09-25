@@ -14,7 +14,7 @@ not a limitation.
 ```ts
 // app/src/plugins.ts (target contract)
 export type LjPlugin = {
-  id: string;                 // reverse-dns, e.g. "im.lobsterjet.adstrip"
+  id: string;                 // reverse-dns, e.g. "im.zeolite.adstrip"
   version: string;
   permissions: PluginPermission[];  // declared, user-granted
   hooks: Partial<PluginHooks>;

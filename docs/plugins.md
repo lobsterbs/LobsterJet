@@ -1,4 +1,4 @@
-# LobsterJet plugin API (Phase 4)
+# Zeolite plugin API (Phase 4)
 
 A plugin is an ES module served at `/plugins/<name>.js` on the engine
 origin. It is listed in a site's `plugins` array in `siteconfig.json`:
