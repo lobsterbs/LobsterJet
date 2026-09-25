@@ -263,13 +263,13 @@ impl Rewriter {
                         first_url = Some(resolve(&v, &self.base));
                     }
                     let newv = if lower == "srcset" || lower == "imagesrcset" {
-                        Some(url_attrs::rewrite_srcset(&v, |u| self.enc(u)))
+                        Some(url_attrs::rewrite_srcset(&v, &|u| self.enc(u)))
                     } else if lower == "style" && self.cfg.rewrite_css {
-                        Some(css::rewrite_stylesheet(&v, |u| self.enc(u)))
+                        Some(css::rewrite_stylesheet(&v, &|u| self.enc(u)))
                     } else if url_attrs::is_url_attr(&name, &lower) {
                         Some(self.enc(&v))
                     } else if is_event_attr(&lower) && self.cfg.rewrite_js_literals {
-                        Some(crate::js::rewrite_inline(&v, |u| self.enc(u)))
+                        Some(crate::js::rewrite_inline(&v, &|u| self.enc(u)))
                     } else {
                         None
                     };
