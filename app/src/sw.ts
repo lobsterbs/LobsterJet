@@ -172,6 +172,70 @@ function netLogPush(entry: Omit<NetEntry, "seq" | "ts">): void {
   if (netLog.length > NET_LIMIT) netLog.shift();
 }
 
+/* ---- Page cache (ported from the v3 worker) -------------------- */
+/* Cache-first for proxied GETs with stale-while-revalidate. Freshness
+   honors Cache-Control: max-age when present (no-store skips the cache
+   entirely); the fallback TTL is 10 minutes. 60-entry cap, FIFO
+   eviction. x-lj-cached-at carries the stored-at time. */
+
+const LJ_PAGES = "lobsterjet-pages-v1";
+const LJ_CACHED_AT = "x-lj-cached-at";
+const LJ_DEFAULT_TTL = 10 * 60 * 1000;
+const LJ_PAGE_LIMIT = 60;
+
+function cacheTtl(headers: Headers): number {
+  const cc = (headers.get("cache-control") ?? "").toLowerCase();
+  if (/no-store/.test(cc)) return 0;
+  const m = /(?:^|[,\s])max-age=(\d+)/.exec(cc);
+  if (m) return Math.min(Number(m[1]) * 1000, 24 * 60 * 60 * 1000);
+  return LJ_DEFAULT_TTL;
+}
+
+async function pageCacheMatch(req: Request): Promise<Response | null> {
+  let hit: Response | undefined;
+  try {
+    hit = await (await caches.open(LJ_PAGES)).match(req);
+  } catch {
+    return null;
+  }
+  if (!hit) return null;
+  const at = Number(hit.headers.get(LJ_CACHED_AT) ?? 0);
+  const ttl = cacheTtl(hit.headers);
+  if (!ttl) return null;
+  if (Date.now() - at < ttl) return hit;
+  /* Stale: serve it now, refresh in the background. */
+  try {
+    const fresh = await wispFetchCacheBypass(req);
+    if (fresh.ok) await pageCacheStore(req, fresh);
+  } catch {
+    /* offline: the stale copy stays served */
+  }
+  return hit;
+}
+
+async function pageCacheStore(req: Request, resp: Response): Promise<void> {
+  const ttl = cacheTtl(resp.headers);
+  if (!ttl || resp.status !== 200) return;
+  try {
+    const cache = await caches.open(LJ_PAGES);
+    const stored = new Response(resp.body, { status: 200, headers: resp.headers });
+    stored.headers.set(LJ_CACHED_AT, String(Date.now()));
+    await cache.put(req, stored);
+    const keys = await cache.keys();
+    while (keys.length > LJ_PAGE_LIMIT) {
+      await cache.delete(keys.shift()!);
+    }
+  } catch {
+    /* storage full or unavailable: skip caching */
+  }
+}
+
+/** Re-fetch a cached request straight through the wisp transport. */
+async function wispFetchCacheBypass(req: Request): Promise<Response> {
+  const dest = decodePath(new URL(req.url).pathname) + new URL(req.url).search;
+  return wispFetch(dest, { method: "GET", redirect: "follow" });
+}
+
 /* ---- Per-site route table ------------------------------------------ */
 
 /** Sites the user disabled for this engine. Keyed by registrable-ish
@@ -195,10 +259,27 @@ function siteDisabled(target: string): boolean {
 
 self.addEventListener("install", () => {
   self.skipWaiting();
+  /* Prewarm: instantiate the rewriter wasm during install, not on the
+     first HTML response (instantiation is the slowest cold-path step). */
+  void rewriter().catch(() => undefined);
 });
 
+let netGeneration = 0;
+
 self.addEventListener("activate", (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil(
+    (async () => {
+      await self.clients.claim();
+      /* Warm the transport so the first proxied request skips libcurl
+         init. A missing vendored build just logs, as before. */
+      netGeneration++;
+      try {
+        await ensureCurl();
+      } catch {
+        /* transport-missing: the suite records it, as before */
+      }
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (e: FetchEvent) => {
@@ -228,6 +309,22 @@ self.addEventListener("fetch", (e: FetchEvent) => {
   e.respondWith(
     (async () => {
       const t0 = Date.now();
+      /* Cache-first for proxied GETs. */
+      if (e.request.method === "GET") {
+        const hit = await pageCacheMatch(e.request);
+        if (hit) {
+          netLogPush({
+            method: e.request.method,
+            path: url.pathname + url.search,
+            dest: target,
+            status: hit.status,
+            ms: Date.now() - t0,
+            bytes: Number(hit.headers.get("content-length") ?? -1),
+            verdict: "cache",
+          });
+          return hit;
+        }
+      }
       const rules = await siteRules();
       const rule = ruleFor(rules, target);
       const plugins = rule.plugins;
@@ -252,6 +349,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           bytes: Number(resp.headers.get("content-length") ?? -1),
           verdict: plugins.length ? "pass:" + plugins.length : undefined,
         });
+        if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
           return new Response(rewriteStream(resp.body, target, rule), {
             status: resp.status,
@@ -353,7 +451,7 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
       // Delta sync: the devtools page sends the last seq it has seen and
       // gets only newer entries, so polling stays cheap at any ring size.
       const since = (msg as { since?: number }).since ?? 0;
-      reply({ entries: netLog.filter((x) => x.seq > since), lastSeq: netSeq });
+      reply({ entries: netLog.filter((x) => x.seq > since), lastSeq: netSeq, generation: netGeneration });
       break;
     }
     default:

@@ -23,6 +23,7 @@ const paused = document.getElementById("paused")!;
 
 let entries: NetEntry[] = [];
 let lastSeq = 0;
+let lastGeneration = -1;
 let sortKey: keyof NetEntry = "seq";
 let sortDesc = false;
 
@@ -97,10 +98,20 @@ function tick(): void {
   paused.textContent = "";
   const ch = new MessageChannel();
   ch.port1.onmessage = (ev) => {
-    const { entries: fresh, lastSeq: seq } = (ev.data ?? { entries: [] }) as {
+    const { entries: fresh, lastSeq: seq, generation } = (ev.data ?? { entries: [] }) as {
       entries: NetEntry[];
       lastSeq: number;
+      generation?: number;
     };
+    // A restarted SW restarts the seq counter: reset the cursor (and
+    // drop pre-restart rows) instead of silently dropping new ones.
+    if (generation !== lastGeneration) {
+      lastGeneration = generation ?? 0;
+      lastSeq = 0;
+      entries = [];
+      render();
+      return;
+    }
     if (fresh.length) {
       entries = [...entries, ...fresh].slice(-500);
       render();
