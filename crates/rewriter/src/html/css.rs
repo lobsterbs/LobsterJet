@@ -33,7 +33,15 @@ pub fn rewrite_stylesheet(css: &str, enc: &dyn Fn(&str) -> String) -> String {
 }
 
 fn utf8_len(b: u8) -> usize {
-    if b < 0x80 { 1 } else if b >> 5 == 0b110 { 2 } else if b >> 4 == 0b1110 { 3 } else { 4 }
+    if b < 0x80 {
+        1
+    } else if b >> 5 == 0b110 {
+        2
+    } else if b >> 4 == 0b1110 {
+        3
+    } else {
+        4
+    }
 }
 
 #[cfg(test)]
@@ -42,8 +50,14 @@ mod tests {
 
     #[test]
     fn urls() {
-        let out = rewrite_stylesheet("a{background:url(img/x.png)}b{background:url( 'y.png' )}", &|u| format!("[{}]", u));
-        assert_eq!(out, "a{background:url('[img/x.png]')}b{background:url('[y.png]')}");
+        let out = rewrite_stylesheet(
+            "a{background:url(img/x.png)}b{background:url( 'y.png' )}",
+            &|u| format!("[{}]", u),
+        );
+        assert_eq!(
+            out,
+            "a{background:url('[img/x.png]')}b{background:url('[y.png]')}"
+        );
     }
 
     #[test]

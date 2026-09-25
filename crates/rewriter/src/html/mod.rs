@@ -56,7 +56,14 @@ pub struct Rewriter {
 
 impl Rewriter {
     pub fn new(cfg: RewriteConfig) -> Self {
-        Self { cfg, base: String::new(), st: St::Text, buf: String::new(), cur_tag: String::new(), injected: false }
+        Self {
+            cfg,
+            base: String::new(),
+            st: St::Text,
+            buf: String::new(),
+            cur_tag: String::new(),
+            injected: false,
+        }
     }
 
     /// Set the page's real destination URL (call before the first chunk).
@@ -92,7 +99,10 @@ impl Rewriter {
         self.injected = true;
         let mut out = String::new();
         if self.cfg.inject_bootstrap {
-            out.push_str(&format!("<script src=\"{}\"></script>", self.cfg.bootstrap_path));
+            out.push_str(&format!(
+                "<script src=\"{}\"></script>",
+                self.cfg.bootstrap_path
+            ));
         }
         for path in &self.cfg.injections {
             out.push_str(&format!("<script src=\"{}\"></script>", path));
@@ -168,7 +178,9 @@ impl Rewriter {
                 }
                 St::Raw => {
                     let close = format!("</{}", self.cur_tag);
-                    let Some(ci) = find_ci(&self.buf, &close) else { break };
+                    let Some(ci) = find_ci(&self.buf, &close) else {
+                        break;
+                    };
                     let raw = self.buf[..ci].to_string();
                     if self.cur_tag == "style" && self.cfg.rewrite_css {
                         out.push_str(&css::rewrite_stylesheet(&raw, &|u| self.enc(u)));
@@ -273,7 +285,11 @@ impl Rewriter {
                     } else {
                         None
                     };
-                    out.push_str(&format_attr(&attr_name, newv.as_deref().unwrap_or(&v), quoted));
+                    out.push_str(&format_attr(
+                        &attr_name,
+                        newv.as_deref().unwrap_or(&v),
+                        quoted,
+                    ));
                 }
                 None => {
                     out.push_str(attr_name.trim_end());
@@ -413,7 +429,10 @@ mod tests {
     use crate::config::RewriteConfig;
 
     fn cfg() -> RewriteConfig {
-        RewriteConfig { inject_bootstrap: false, ..Default::default() }
+        RewriteConfig {
+            inject_bootstrap: false,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -430,8 +449,16 @@ mod tests {
             let abs = resolve(u, base);
             cfg().encode_url(&abs)
         };
-        assert!(full.contains(&format!("href='{}'", enc("foo.html"))), "got: {}", full);
-        assert!(full.contains(&format!("src=\"{}\"", enc("/a.png"))), "got: {}", full);
+        assert!(
+            full.contains(&format!("href='{}'", enc("foo.html"))),
+            "got: {}",
+            full
+        );
+        assert!(
+            full.contains(&format!("src=\"{}\"", enc("/a.png"))),
+            "got: {}",
+            full
+        );
     }
 
     #[test]
@@ -493,7 +520,11 @@ mod tests {
         out.push_str(&r.process("hello world, 1 < 2 and <p"));
         out.push_str(&r.process(">ok</p>"));
         out.push_str(&r.finish());
-        assert!(out.contains("hello world, 1 < 2 and <p>ok</p>"), "got: {}", out);
+        assert!(
+            out.contains("hello world, 1 < 2 and <p>ok</p>"),
+            "got: {}",
+            out
+        );
     }
 
     #[test]
@@ -521,17 +552,35 @@ mod tests {
              <img src=\"https://img.example.com/ok.png\">\
              <a href=\"https://tracker.io/ad\">link text stays</a></body></html>",
         );
-        assert!(!out.contains("ads.example.net"), "blocked script dropped: {}", out);
+        assert!(
+            !out.contains("ads.example.net"),
+            "blocked script dropped: {}",
+            out
+        );
         assert!(!out.contains("pixel.gif"), "blocked img dropped: {}", out);
-        assert!(out.contains("img.example.com/ok.png".replace("img.example.com", "example.com/j/") || out.contains("/j/")), "kept img rewritten: {}", out);
-        assert!(out.contains("link text stays"), "anchor text survives: {}", out);
+        assert!(
+            out.contains(
+                "img.example.com/ok.png".replace("img.example.com", "example.com/j/")
+                    || out.contains("/j/")
+            ),
+            "kept img rewritten: {}",
+            out
+        );
+        assert!(
+            out.contains("link text stays"),
+            "anchor text survives: {}",
+            out
+        );
         // Anchors are not blockable: navigation is content, not a subresource.
         assert!(out.contains("<a "), "anchor kept: {}", out);
     }
 
     #[test]
     fn blocked_subdomain_matches() {
-        let c = RewriteConfig { block_hosts: vec!["doubleclick.net".into()], ..cfg() };
+        let c = RewriteConfig {
+            block_hosts: vec!["doubleclick.net".into()],
+            ..cfg()
+        };
         let mut r = Rewriter::new(c);
         r.set_base("https://example.com/");
         let out = r.process("<img src=\"https://ad.doubleclick.net/x.gif\">");

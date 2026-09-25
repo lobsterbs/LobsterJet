@@ -72,8 +72,10 @@ fn looks_like_url(s: &str) -> bool {
         return false;
     }
     let lower = t.to_ascii_lowercase();
-    if lower.starts_with("http://") || lower.starts_with("https://")
-        || lower.starts_with("ws://") || lower.starts_with("wss://")
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("ws://")
+        || lower.starts_with("wss://")
     {
         return true;
     }
@@ -110,7 +112,15 @@ fn find_literal_end(s: &str, q: char) -> Option<usize> {
 }
 
 fn utf8_len(b: u8) -> usize {
-    if b < 0x80 { 1 } else if b >> 5 == 0b110 { 2 } else if b >> 4 == 0b1110 { 3 } else { 4 }
+    if b < 0x80 {
+        1
+    } else if b >> 5 == 0b110 {
+        2
+    } else if b >> 4 == 0b1110 {
+        3
+    } else {
+        4
+    }
 }
 
 #[cfg(test)]
@@ -119,7 +129,8 @@ mod tests {
 
     #[test]
     fn rewrites_url_literals_only() {
-        let js = r#"var a = "https://example.com/x"; var b = 'hello'; fetch("//cdn.example.net/y");"#;
+        let js =
+            r#"var a = "https://example.com/x"; var b = 'hello'; fetch("//cdn.example.net/y");"#;
         let out = rewrite_script(js, &|u| format!("[{}]", u));
         assert!(out.contains(r#""[https://example.com/x]""#), "{}", out);
         assert!(out.contains("'hello'"));

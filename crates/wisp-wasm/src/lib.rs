@@ -72,7 +72,12 @@ pub fn handshake_info() -> Vec<u8> {
 /// CONNECT for a new TCP stream to host:port.
 #[wasm_bindgen(js_name = "connectTcp")]
 pub fn connect_tcp(stream_id: u32, port: u16, hostname: String) -> Vec<u8> {
-    let pkt = Packet::Connect { stream_id, kind: StreamKind::Tcp, port, hostname };
+    let pkt = Packet::Connect {
+        stream_id,
+        kind: StreamKind::Tcp,
+        port,
+        hostname,
+    };
     encode_into_bytes(&pkt)
 }
 
@@ -86,7 +91,10 @@ pub fn data_packet(stream_id: u32, payload: Vec<u8>) -> Vec<u8> {
 /// CONTINUE: tell the peer it may keep sending (buffer window).
 #[wasm_bindgen(js_name = "continuePacket")]
 pub fn continue_packet(stream_id: u32, buffer_remaining: u32) -> Vec<u8> {
-    let pkt = Packet::Continue { stream_id, buffer_remaining };
+    let pkt = Packet::Continue {
+        stream_id,
+        buffer_remaining,
+    };
     encode_into_bytes(&pkt)
 }
 
@@ -132,8 +140,16 @@ mod tests {
         let frame = Frame::decode(&mut buf).unwrap().unwrap();
         let pkt = frame.parse_packet().unwrap();
         match pkt {
-            Packet::Connect { stream_id, kind, port, hostname } => {
-                assert_eq!((stream_id, port, hostname), (7, 443, "example.com".to_string()));
+            Packet::Connect {
+                stream_id,
+                kind,
+                port,
+                hostname,
+            } => {
+                assert_eq!(
+                    (stream_id, port, hostname),
+                    (7, 443, "example.com".to_string())
+                );
                 assert!(matches!(kind, StreamKind::Tcp));
             }
             _ => panic!("wrong packet"),

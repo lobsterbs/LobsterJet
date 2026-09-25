@@ -70,8 +70,7 @@ async fn main() {
     let app = Router::new()
         .route("/wisp/", get(wisp_handler))
         .fallback_service(
-            tower_http::services::ServeDir::new(&static_dir)
-                .append_index_html_on_directories(true),
+            tower_http::services::ServeDir::new(&static_dir).append_index_html_on_directories(true),
         )
         .with_state(Arc::new(()));
 
@@ -83,8 +82,12 @@ async fn main() {
 
 async fn wisp_handler(ws: WebSocketUpgrade, State(_s): State<Arc<()>>) -> impl IntoResponse {
     // v2 clients send the wisp subprotocol header; absence means v1.
-    let v2 = ws.protocols().iter().any(|p| p.eq_ignore_ascii_case("wisp"));
-    ws.protocols(["wisp"]).on_upgrade(move |socket| wisp_session(socket, v2))
+    let v2 = ws
+        .protocols()
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case("wisp"));
+    ws.protocols(["wisp"])
+        .on_upgrade(move |socket| wisp_session(socket, v2))
 }
 
 async fn wisp_session(socket: WebSocket, v2: bool) {
@@ -101,7 +104,10 @@ async fn wisp_session(socket: WebSocket, v2: bool) {
     });
 
     let mut handshake = ServerHandshake::new(Vec::new());
-    let mut state = ConnState { ws_tx: ws_tx.clone(), streams: HashMap::new() };
+    let mut state = ConnState {
+        ws_tx: ws_tx.clone(),
+        streams: HashMap::new(),
+    };
 
     for pkt in handshake.opening_packets(v2) {
         if send_packet(&ws_tx, &pkt).await.is_err() {
@@ -152,7 +158,12 @@ async fn wisp_session(socket: WebSocket, v2: bool) {
                     }
                 }
             }
-            Packet::Connect { stream_id, kind, port, hostname } => {
+            Packet::Connect {
+                stream_id,
+                kind,
+                port,
+                hostname,
+            } => {
                 if state.streams.contains_key(&stream_id) {
                     continue; // duplicate CONNECT: ignore
                 }
@@ -162,7 +173,10 @@ async fn wisp_session(socket: WebSocket, v2: bool) {
                         // Phase 2: UDP relay (DNS is the main consumer).
                         let _ = send_packet(
                             &ws_tx,
-                            &Packet::Close { stream_id, reason: CloseReason::Unspecified },
+                            &Packet::Close {
+                                stream_id,
+                                reason: CloseReason::Unspecified,
+                            },
                         )
                         .await;
                     }
@@ -184,7 +198,10 @@ async fn wisp_session(socket: WebSocket, v2: bool) {
                 if state.close_stream(stream_id) {
                     let _ = send_packet(
                         &ws_tx,
-                        &Packet::Close { stream_id, reason: CloseReason::Voluntary },
+                        &Packet::Close {
+                            stream_id,
+                            reason: CloseReason::Voluntary,
+                        },
                     )
                     .await;
                 }
@@ -203,7 +220,13 @@ async fn wisp_session(socket: WebSocket, v2: bool) {
 fn spawn_tcp_relay(state: &mut ConnState, stream_id: u32, port: u16, hostname: String) {
     let ws_tx = state.ws_tx.clone();
     let (input_tx, input_rx) = mpsc::channel::<Vec<u8>>(64);
-    state.streams.insert(stream_id, StreamEntry { input: input_tx, open: true });
+    state.streams.insert(
+        stream_id,
+        StreamEntry {
+            input: input_tx,
+            open: true,
+        },
+    );
 
     tokio::spawn(async move {
         let addr = format!("{}:{}", hostname, port);
@@ -217,7 +240,10 @@ fn spawn_tcp_relay(state: &mut ConnState, stream_id: u32, port: u16, hostname: S
             _ => {
                 let _ = send_packet(
                     &ws_tx,
-                    &Packet::Close { stream_id, reason: CloseReason::UnreachableHost },
+                    &Packet::Close {
+                        stream_id,
+                        reason: CloseReason::UnreachableHost,
+                    },
                 )
                 .await;
                 return;
@@ -242,11 +268,17 @@ fn spawn_tcp_relay(state: &mut ConnState, stream_id: u32, port: u16, hostname: S
             match sock_read.read(&mut buf).await {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let data = Packet::Data { stream_id, payload: buf[..n].to_vec() };
+                    let data = Packet::Data {
+                        stream_id,
+                        payload: buf[..n].to_vec(),
+                    };
                     if send_packet(&ws_tx, &data).await.is_err() {
                         break;
                     }
-                    let cont = Packet::Continue { stream_id, buffer_remaining: 128 };
+                    let cont = Packet::Continue {
+                        stream_id,
+                        buffer_remaining: 128,
+                    };
                     if send_packet(&ws_tx, &cont).await.is_err() {
                         break;
                     }
@@ -256,7 +288,10 @@ fn spawn_tcp_relay(state: &mut ConnState, stream_id: u32, port: u16, hostname: S
 
         let _ = send_packet(
             &ws_tx,
-            &Packet::Close { stream_id, reason: CloseReason::Voluntary },
+            &Packet::Close {
+                stream_id,
+                reason: CloseReason::Voluntary,
+            },
         )
         .await;
         writer.abort(); // writer ends with us

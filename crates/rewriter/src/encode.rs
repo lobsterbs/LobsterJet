@@ -43,8 +43,12 @@ pub fn b64u_encode(data: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(B64URL[(n >> 18) as usize & 63] as char);
         out.push(B64URL[(n >> 12) as usize & 63] as char);
-        if chunk.len() > 1 { out.push(B64URL[(n >> 6) as usize & 63] as char); }
-        if chunk.len() > 2 { out.push(B64URL[n as usize & 63] as char); }
+        if chunk.len() > 1 {
+            out.push(B64URL[(n >> 6) as usize & 63] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(B64URL[n as usize & 63] as char);
+        }
     }
     out
 }
@@ -83,10 +87,15 @@ pub fn resolve(url: &str, base: &str) -> String {
     }
     // Engine-local paths and other non-URLs pass through untouched.
     let lower = url.as_bytes();
-    let has_scheme = lower.len() > 7
-        && lower[..8].iter().all(|b| b.is_ascii_alphanumeric())
-        && lower[7] == b':';
-    if has_scheme || url.starts_with("data:") || url.starts_with("blob:") || url.starts_with("javascript:") || url.starts_with("mailto:") || url.starts_with("tel:") {
+    let has_scheme =
+        lower.len() > 7 && lower[..8].iter().all(|b| b.is_ascii_alphanumeric()) && lower[7] == b':';
+    if has_scheme
+        || url.starts_with("data:")
+        || url.starts_with("blob:")
+        || url.starts_with("javascript:")
+        || url.starts_with("mailto:")
+        || url.starts_with("tel:")
+    {
         return url.to_string();
     }
     // Split base into scheme://host and path.
@@ -119,11 +128,17 @@ pub fn resolve(url: &str, base: &str) -> String {
     for seg in url.split(['?', '#']).next().unwrap_or("").split('/') {
         match seg {
             "." | "" => {}
-            ".." => { segs.pop(); }
+            ".." => {
+                segs.pop();
+            }
             s => segs.push(s),
         }
     }
-    let path = if segs.is_empty() { String::new() } else { format!("/{}", segs.join("/")) };
+    let path = if segs.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", segs.join("/"))
+    };
     let tail = url.split('/').next_back().unwrap_or("");
     let qpos = tail.find(['?', '#']).map(|i| url.len() - tail.len() + i);
     let suffix = qpos.map(|i| &url[i..]).unwrap_or("");
@@ -147,8 +162,9 @@ pub fn url_host(url: &str) -> Option<&str> {
         return Some(&hostport[..close + 2]);
     }
     match hostport.rfind(':') {
-        Some(i) if !hostport[i + 1..].is_empty()
-            && hostport[i + 1..].chars().all(|c| c.is_ascii_digit()) =>
+        Some(i)
+            if !hostport[i + 1..].is_empty()
+                && hostport[i + 1..].chars().all(|c| c.is_ascii_digit()) =>
         {
             Some(&hostport[..i])
         }
@@ -164,7 +180,10 @@ mod tests {
     fn hosts() {
         assert_eq!(url_host("https://example.com/x"), Some("example.com"));
         assert_eq!(url_host("https://EXAMPLE.com:8443/x"), Some("EXAMPLE.com"));
-        assert_eq!(url_host("http://u:p@cdn.example.net/x"), Some("cdn.example.net"));
+        assert_eq!(
+            url_host("http://u:p@cdn.example.net/x"),
+            Some("cdn.example.net")
+        );
         assert_eq!(url_host("https://[::1]:8443/x"), Some("[::1]"));
         assert_eq!(url_host("/relative"), None);
     }
@@ -172,7 +191,10 @@ mod tests {
     #[test]
     fn b64_roundtrip() {
         for s in ["", "a", "ab", "abc", "https://example.com/x?y=1", "ünïcode"] {
-            assert_eq!(b64u_decode(&b64u_encode(s.as_bytes())).unwrap(), s.as_bytes());
+            assert_eq!(
+                b64u_decode(&b64u_encode(s.as_bytes())).unwrap(),
+                s.as_bytes()
+            );
         }
     }
 
@@ -181,17 +203,28 @@ mod tests {
         let b = "https://example.com/a/b/c.html";
         assert_eq!(resolve("d.png", b), "https://example.com/a/b/d.png");
         assert_eq!(resolve("/x", b), "https://example.com/x");
-        assert_eq!(resolve("//cdn.example.net/x", b), "https://cdn.example.net/x");
+        assert_eq!(
+            resolve("//cdn.example.net/x", b),
+            "https://cdn.example.net/x"
+        );
         assert_eq!(resolve("?q=1", b), "https://example.com/a/b/c.html?q=1");
         assert_eq!(resolve("../up", b), "https://example.com/a/up");
-        assert_eq!(resolve("https://other.example/", b), "https://other.example/");
+        assert_eq!(
+            resolve("https://other.example/", b),
+            "https://other.example/"
+        );
         assert_eq!(resolve("#frag", b), "#frag");
-        assert_eq!(resolve("data:image/png;base64,AAA", b), "data:image/png;base64,AAA");
+        assert_eq!(
+            resolve("data:image/png;base64,AAA", b),
+            "data:image/png;base64,AAA"
+        );
     }
 
     #[test]
     fn codec_roundtrip() {
-        let c = Codec::Base64Url { prefix: "/j/".into() };
+        let c = Codec::Base64Url {
+            prefix: "/j/".into(),
+        };
         let dest = "https://example.com/page";
         let path = format!("/j/{}", b64u_encode(dest.as_bytes()));
         assert_eq!(decode_path(&c, "", &path).unwrap(), dest);
