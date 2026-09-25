@@ -197,6 +197,24 @@ export class ExtensionManager {
     this.changed(id);
   }
 
+  /* Lifecycle state transition from the runtime (background boot,
+     crash capture). Persists so DevTools/UI can show it after a SW
+     restart. */
+  setState(
+    id: ExtensionId,
+    state: ExtensionRecord["state"],
+    lastError: string | null,
+  ): void {
+    const rec = this.exts.get(id);
+    if (!rec) return;
+    rec.state = state;
+    rec.lastError = lastError;
+    this.changed(id);
+    void openDb()
+      .then((db) => idbPut(db, STORE_META, id, rec))
+      .catch(() => undefined);
+  }
+
   /* Shallow clones: callers cannot mutate manager state. */
   list(): ExtensionRecord[] {
     return Array.from(this.exts.values()).map((r) => ({ ...r }));
@@ -226,7 +244,11 @@ export class ExtensionManager {
          phase; MV2-style glob exposure is checked above. */
     }
     const db = await openDb();
-    const val = await idbGet(db, STORE_FILES, id + ":" + norm);
+    /* Package paths are stored without the leading slash; the origin
+       normalizer adds one. Accept both so manifest-relative and
+       origin-absolute lookups both resolve. */
+    let val = await idbGet(db, STORE_FILES, id + ":" + norm);
+    if (val === undefined) val = await idbGet(db, STORE_FILES, id + ":" + norm.slice(1));
     return val instanceof Uint8Array ? val : null;
   }
 }

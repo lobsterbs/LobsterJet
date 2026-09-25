@@ -50,6 +50,23 @@ export function buildApi(
   sender: MessageSender,
   deps: ApiDeps
 ): { browser: Record<string, unknown>; chrome: Record<string, unknown> } {
+  /* Bridge the messaging event namespaces into the messenger so
+     listeners registered by any context of this extension are
+     reachable from every other context. */
+  const offs = new Map<unknown, () => void>();
+  function bridged<L>(reg: (l: L) => () => void): EventNamespace<L> {
+    return {
+      addListener: (l: L) => {
+        if (offs.has(l)) return;
+        offs.set(l, reg(l));
+      },
+      removeListener: (l: L) => {
+        offs.get(l)?.();
+        offs.delete(l);
+      },
+      hasListener: (l: L) => offs.has(l),
+    };
+  }
   const runtime = {
     id: ext.id,
     getManifest: (): Record<string, unknown> =>
@@ -57,9 +74,9 @@ export function buildApi(
     getURL: (path: string): string => extensionUrl(ext.id, path),
     sendMessage: (msg: unknown): Promise<unknown> =>
       deps.messenger.sendMessage(ext.id, sender, msg),
-    onMessage: makeEvent<MessageListener>(),
+    onMessage: bridged<MessageListener>((l) => deps.messenger.onMessage(ext.id, l)),
     connect: (name: string) => deps.messenger.connect(ext.id, name, sender),
-    onConnect: makeEvent<ConnectListener>(),
+    onConnect: bridged<ConnectListener>((l) => deps.messenger.onConnect(ext.id, l)),
     get lastError(): null {
       return null;
     },

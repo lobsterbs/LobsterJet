@@ -19,3 +19,11 @@ export { ExtensionStorageArea } from "./storage";
 export { readZip, locateManifest } from "./package";
 export { resolveContentScripts, contentScriptMatches, globToRegExp } from "./content-scripts";
 export { EXT_SCHEME, parseExtensionUrl, extensionUrl, normalizeExtensionPath } from "./origin";
+export { MESSENGER, getExtensionContext } from "./context";
+export { bootEnabled, bootExtension } from "./background";
+export {
+  serveExtensionAsset,
+  parseServePath,
+  EXT_ROUTE,
+  CS_ROUTE,
+} from "./serve";

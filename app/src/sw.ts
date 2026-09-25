@@ -27,6 +27,18 @@ import { decodePath, isEnginePath, setScheme, currentPrefix } from "./codec";
 import { ZL_WISP_URL } from "./config";
 import { ruleFor, siteRules } from "./siteconfig";
 import { applyOnRequest, applyOnResponse } from "./plugins";
+import {
+  CS_ROUTE,
+  EXT_ROUTE,
+  MESSENGER,
+  bootEnabled,
+  contentScriptMatches,
+  extensions,
+  getExtensionContext,
+  resolveContentScripts,
+  serveExtensionAsset,
+} from "./extensions";
+import type { ExtensionStorageArea } from "./extensions/storage";
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -108,6 +120,7 @@ function rewriteStream(
   body: ReadableStream<Uint8Array>,
   base: string,
   rule: { inject?: string[]; block?: string[] },
+  csInject: string[],
 ): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -120,6 +133,7 @@ function rewriteStream(
       const rw = new mod.JsRewriter(self.location.origin, base, currentPrefix());
       for (const path of rule.inject ?? []) rw.add_injection(path);
       if (rule.block?.length) rw.set_blocked_hosts(rule.block);
+      for (const u of csInject) rw.add_injection(u);
       const reader = body.getReader();
       try {
         for (;;) {
@@ -282,14 +296,61 @@ self.addEventListener("activate", (e) => {
       } catch {
         /* transport-missing: the suite records it, as before */
       }
+      /* Extensions: load the installed set, then boot enabled
+         background scripts. Any failure lands in that extension's
+         record; the engine itself never fails because of one. */
+      try {
+        await extensions.startup();
+        await bootEnabled();
+      } catch {
+        /* extension subsystem unavailable: stays inert */
+      }
     })(),
   );
 });
+
+/** Content-script injection URLs for this document: one bridge per
+    matching declared script set (each carries its own js/css/run_at).
+    Zero installed extensions means an empty array: no added work on
+    the hot path beyond one array scan. */
+function csInjectUrls(target: string, req: Request): string[] {
+  const exts = extensions.list();
+  if (exts.length === 0) return [];
+  const dest = (req.headers.get("sec-fetch-dest") ?? "").toLowerCase();
+  const subframe = dest === "iframe" || dest === "object";
+  const urls: string[] = [];
+  for (const r of resolveContentScripts(exts, target, subframe)) {
+    if (r.js.length === 0 && r.css.length === 0) continue;
+    urls.push(
+      CS_ROUTE +
+        r.extId +
+        "/__bridge.js?cfg=" +
+        encodeURIComponent(
+          JSON.stringify({ ext: r.extId, js: r.js, css: r.css, runAt: r.runAt }),
+        ),
+    );
+  }
+  return urls;
+}
 
 self.addEventListener("fetch", (e: FetchEvent) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return; // not ours: browser handles it
   if (url.pathname.startsWith("/wisp/")) return; // transport endpoint: passthrough
+  /* Extension routes: web-accessible resources (/zl-ext/) and the
+     content-script bridge + declared script files (/zl-cs/). */
+  if (url.pathname.startsWith(EXT_ROUTE) || url.pathname.startsWith(CS_ROUTE)) {
+    e.respondWith(
+      serveExtensionAsset(e.request, url).catch(
+        (err) =>
+          new Response("zeolite: extension asset failed: " + String(err), {
+            status: 500,
+            headers: { "content-type": "text/plain" },
+          }),
+      ),
+    );
+    return;
+  }
   if (!isEnginePath(url.pathname)) return; // engine asset: passthrough
 
   const dest = decodePath(url.pathname);
@@ -355,7 +416,8 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         });
         if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
-          return new Response(rewriteStream(resp.body, target, rule), {
+          const csInject = csInjectUrls(target, e.request);
+          return new Response(rewriteStream(resp.body, target, rule, csInject), {
             status: resp.status,
             headers,
           });
@@ -407,7 +469,15 @@ function forwardedHeaders(req: Request): Headers {
 /* ---- Control plane (Phase 2 + Phase 4) ---------------------------- */
 
 interface ControlMessage {
-  type: "zl:config" | "zl:siteRoute" | "zl:teardown" | "zl:ping" | "zl:getNetLog";
+  type:
+    | "zl:config"
+    | "zl:siteRoute"
+    | "zl:teardown"
+    | "zl:ping"
+    | "zl:getNetLog"
+    | "zl:ext";
+  extId?: string;
+  msg?: unknown;
   prefix?: string;
   scheme?: "b64u" | "mirror";
   site?: string;
@@ -460,7 +530,72 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
           version: ZEOLITE_VERSION, });
       break;
     }
+    case "zl:ext": {
+      /* Content-script bridge traffic from a controlled page. Real
+         host verification: the sender page's destination must match
+         the extension's declared content-script patterns. */
+      const em = msg as { extId?: string; msg?: unknown };
+      if (!em.extId) {
+        reply({ ok: false, error: "missing extId" });
+        break;
+      }
+      e.waitUntil(
+        handleExtMessage(e, em).then(
+          (r) => reply(r),
+          (err) => reply({ ok: false, error: String(err) }),
+        ),
+      );
+      break;
+    }
     default:
       reply({ ok: false, error: "unknown message" });
   }
 });
+
+/** Extension messages from content-script bridges. Deliver to the
+    extension's background listeners or storage areas after verifying
+    the sender page actually matches the extension's declared
+    content_scripts. */
+async function handleExtMessage(
+  ev: ExtendableMessageEvent,
+  m: { extId: string; msg: unknown },
+): Promise<{ ok: boolean; response?: unknown; error?: string }> {
+  const src = ev.source;
+  if (!src || !src.url) return { ok: false, error: "unknown sender" };
+  const su = new URL(src.url, self.location.origin);
+  const dest = decodePath(su.pathname) + su.search;
+  if (!dest) return { ok: false, error: "unknown sender page" };
+  const rec = extensions.get(m.extId);
+  if (!rec || !rec.enabled) return { ok: false, error: "no such extension" };
+  const matched = rec.contentScripts.some(
+    (s) => contentScriptMatches(s, dest, false) || contentScriptMatches(s, dest, true),
+  );
+  if (!matched) {
+    return { ok: false, error: "extension content scripts do not match this page" };
+  }
+  const msg = m.msg as Record<string, unknown> | null;
+  if (msg && typeof msg === "object" && typeof msg.__zlStorage === "string") {
+    if (!rec.permissions.includes("storage")) {
+      return { ok: false, error: "storage permission not granted" };
+    }
+    const ctx = await getExtensionContext(rec);
+    const area = (ctx.storage as unknown as Record<string, ExtensionStorageArea>)[
+      String(msg.__zlStorage)
+    ];
+    if (!area) return { ok: false, error: "no such storage area" };
+    const op = String(msg.op ?? "");
+    let r: Promise<unknown>;
+    if (op === "get") r = area.get(msg.keys as string | string[] | null);
+    else if (op === "set") r = area.set(msg.items as Record<string, unknown>);
+    else if (op === "remove") r = area.remove(msg.keys as string | string[]);
+    else if (op === "clear") r = area.clear();
+    else return { ok: false, error: "bad storage op" };
+    return { ok: true, response: await r };
+  }
+  const response = await MESSENGER.sendMessage(rec.id, {
+    extensionId: rec.id,
+    context: "content",
+    url: dest,
+  }, m.msg);
+  return { ok: true, response };
+}
