@@ -15,10 +15,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo check -p zeolite-rewriter -p zeolite-wisp --target wasm32-unknown-unknown
+      - name: diag fmt
+        run: |
+          cargo fmt --all --check > fmt.out 2>&1 || true
+          if [ -s fmt.out ]; then
+            D=$(head -c 700 fmt.out | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::FMT NOT CLEAN%0A$D"
+          fi
+      - name: diag clippy
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings > clippy.out 2>&1 || true
+          if grep -q "^error" clippy.out; then
+            D=$(grep -m1 -A8 "^error" clippy.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::CLIPPY%0A$D"
+          fi
+      - name: diag test
+        run: |
+          cargo test --workspace > test.out 2>&1 || true
+          if grep -qE "^error|FAILED|panicked" test.out; then
+            D=$(grep -m1 -B2 -A8 -E "^error|FAILED|panicked" test.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::TEST%0A$D"
+          fi
+      - name: diag wasm-check
+        run: |
+          cargo check -p zeolite-rewriter -p zeolite-wisp --target wasm32-unknown-unknown > wc.out 2>&1 || true
+          if grep -q "^error" wc.out; then
+            D=$(grep -m1 -A8 "^error" wc.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::WASMCHECK%0A$D"
+          fi
 
   wasm:
     runs-on: ubuntu-latest
@@ -30,7 +54,11 @@ jobs:
       - run: cargo install wasm-pack --version 0.13.1 || true
       - name: Build rewriter wasm
         run: |
-          wasm-pack build crates/rewriter --target web --release --out-name rewriter_wasm
+          if ! wasm-pack build crates/rewriter --target web --release --out-name rewriter_wasm > wasm1.out 2>&1; then
+            D=$(grep -m1 -A10 -i "error" wasm1.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::REWASM%0A$D"
+            exit 1
+          fi
           mkdir -p app/src/rewriter_wasm
           cp crates/rewriter/pkg/rewriter_wasm* app/src/rewriter_wasm/
       - name: Build wisp wasm
@@ -88,7 +116,7 @@ jobs:
   compat:
     # Nightly only: needs a built engine. Phase 1 gate: YouTube + Reddit
     # pass with first-paint ratio <= 2x.
-    if: github.event_name == 'schedule'
+    if: github.event_name == "schedule"
     runs-on: ubuntu-latest
     needs: [rust, app]
     steps:
@@ -106,7 +134,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zeolite-scoreboard
+          name: lj-scoreboard
           path: suite/scoreboard.*
       # Publish the scoreboard as a public page (Phase 4): the latest
       # JSON + Markdown land on the "scoreboard" branch, force-updated
