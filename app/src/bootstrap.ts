@@ -10,14 +10,9 @@
      window.__ZL = { dest: "https://real.site/page" }
    falls back to document.baseURI when absent. */
 
-declare global {
-  interface Window {
-    __ZL?: { dest: string };
-  }
-}
-
 const w = window as unknown as Record<string, unknown>;
-const ZL = (window.__ZL ?? { dest: document.baseURI }) as { dest: string };
+const ZL = ((w.__ZL as { dest: string } | undefined) ??
+  { dest: document.baseURI }) as { dest: string };
 
 /* ---- per-site storage scoping ------------------------------------- */
 /* Everything is prefixed by a short stable hash of the site origin:
@@ -156,13 +151,13 @@ const KEY = (k: string) => SITE + ":" + k;
       const port = u.port ? Number(u.port) : u.protocol === "wss:" ? 443 : 80;
 
       const es = new EventTarget() as unknown as WebSocket;
-      let wsState = WebSocket.CONNECTING;
+      let wsState: number = WebSocket.CONNECTING;
       let streamId: number | null = null;
       const sendQ: Uint8Array[] = [];
 
       // Handshake bytes accumulate until CRLFCRLF; after 101 the parser
       // owns a separate rolling buffer for RFC 6455 frames.
-      let hsBuf = new Uint8Array(0);
+      let hsBuf: Uint8Array = new Uint8Array(0);
       let wsOpen = false;
 
       function findCRLFCRLF(b: Uint8Array): number {

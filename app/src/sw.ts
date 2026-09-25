@@ -224,9 +224,10 @@ async function pageCacheStore(req: Request, resp: Response): Promise<void> {
     const stored = new Response(resp.body, { status: 200, headers: resp.headers });
     stored.headers.set(ZL_CACHED_AT, String(Date.now()));
     await cache.put(req, stored);
-    const keys = await cache.keys();
+    let keys = await cache.keys();
     while (keys.length > ZL_PAGE_LIMIT) {
-      await cache.delete(keys.shift()!);
+      await cache.delete(keys[0]);
+      keys = keys.slice(1);
     }
   } catch {
     /* storage full or unavailable: skip caching */
