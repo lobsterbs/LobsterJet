@@ -1,4 +1,4 @@
-/* LobsterJet engine adapter (Phase 2). The documented interface
+/* Zeolite engine adapter (Phase 2). The documented interface
    LobsterBrowse (or any host) programs the engine with. See
    docs/engine-adapter.md for the contract and the embed-URL fallback.
 
@@ -10,7 +10,7 @@
    - setSiteRoute(): per-site interception toggle, acknowledged by the SW.
    - exportSession()/importSession(): a versioned JSON blob holding the
      per-site cookie jar (via the transport seam) plus all scoped
-     storage entries (keys prefixed "lj:<sitehash>:"). Blob is
+     storage entries (keys prefixed "zl:<sitehash>:"). Blob is
      engine-tagged so a Scramjet blob can never import.
    - teardown(): SW unregisters and caches drop; nothing survives an
      engine switch. */
@@ -34,7 +34,7 @@ interface CookieEntry {
 }
 
 interface SessionBlob {
-  format: "lobsterjet-session";
+  format: "zeolite-session";
   version: 1;
   profile: string;
   exported: string;
@@ -44,20 +44,20 @@ interface SessionBlob {
 
 /** Which origins a session covers. Default: every proxied site. */
 function scopedOrigins(): string[] {
-  // Derived from storage keys: lj:<sitehash>:<key>. The hash is FNV1a
+  // Derived from storage keys: zl:<sitehash>:<key>. The hash is FNV1a
   // of the origin, but we keep a reverse index in storage for exact
   // export (the hash is not invertible).
-  const idx = JSON.parse(localStorage.getItem("lj:origins") ?? "{}") as Record<string, string>;
+  const idx = JSON.parse(localStorage.getItem("zl:origins") ?? "{}") as Record<string, string>;
   return Object.keys(idx);
 }
 
 function rememberOrigin(origin: string): void {
-  const idx = JSON.parse(localStorage.getItem("lj:origins") ?? "{}") as Record<string, string>;
+  const idx = JSON.parse(localStorage.getItem("zl:origins") ?? "{}") as Record<string, string>;
   idx[origin] = "1";
-  localStorage.setItem("lj:origins", JSON.stringify(idx));
+  localStorage.setItem("zl:origins", JSON.stringify(idx));
 }
 
-export class LobsterJetEngine {
+export class ZeoliteEngine {
   private config: Required<Pick<EngineConfig, "pathScheme" | "pathPrefix" | "profile">> & EngineConfig = {
     pathScheme: "b64u",
     pathPrefix: "/j/",
@@ -81,7 +81,7 @@ export class LobsterJetEngine {
       // The host should reload once; init() will then fully succeed.
       return;
     }
-    await this.post({ type: "lj:config", prefix: this.config.pathPrefix, scheme: this.config.pathScheme });
+    await this.post({ type: "zl:config", prefix: this.config.pathPrefix, scheme: this.config.pathScheme });
   }
 
   /** Engine-local route for a destination (usable as an iframe src). */
@@ -91,10 +91,10 @@ export class LobsterJetEngine {
 
   /** Enable/disable interception for one site. */
   async setSiteRoute(site: string, enabled: boolean): Promise<void> {
-    await this.post({ type: "lj:siteRoute", site, enabled });
+    await this.post({ type: "zl:siteRoute", site, enabled });
     // Persist across SW restarts (the SW is ephemeral; the adapter is
     // the durable brain).
-    const key = "lj:disabled-sites";
+    const key = "zl:disabled-sites";
     const cur = new Set(JSON.parse(localStorage.getItem(key) ?? "[]") as string[]);
     if (enabled) cur.delete(site);
     else cur.add(site);
@@ -110,7 +110,7 @@ export class LobsterJetEngine {
     for (const origin of scopedOrigins()) {
       // Cookie jar for this profile (multiple accounts per site).
       try {
-        const jarKey = `lj:jar:${this.config.profile}:${origin}`;
+        const jarKey = `zl:jar:${this.config.profile}:${origin}`;
         if (typeof mod.getCookies === "function") {
           const live = await mod.getCookies(origin);
           localStorage.setItem(jarKey, JSON.stringify(live));
@@ -121,18 +121,18 @@ export class LobsterJetEngine {
       } catch {
         cookies[origin] = [];
       }
-      // Scoped storage: enumerate lj:<hash>: keys for this origin.
+      // Scoped storage: enumerate zl:<hash>: keys for this origin.
       const siteHash = await this.hashOrigin(origin);
       const kv: Record<string, string> = {};
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i)!;
-        if (k.startsWith(`lj:${siteHash}:`)) kv[k] = localStorage.getItem(k)!;
+        if (k.startsWith(`zl:${siteHash}:`)) kv[k] = localStorage.getItem(k)!;
       }
       storage[origin] = kv;
     }
 
     const blob: SessionBlob = {
-      format: "lobsterjet-session",
+      format: "zeolite-session",
       version: 1,
       profile: this.config.profile,
       exported: new Date().toISOString(),
@@ -150,13 +150,13 @@ export class LobsterJetEngine {
     } catch {
       throw new Error("not a session blob");
     }
-    if (blob.format !== "lobsterjet-session") {
-      throw new Error("engine mismatch: not a LobsterJet session");
+    if (blob.format !== "zeolite-session") {
+      throw new Error("engine mismatch: not a Zeolite session");
     }
     const mod = await import("./libcurl-transport-vendored");
     for (const [origin, jar] of Object.entries(blob.cookies ?? {})) {
       rememberOrigin(origin);
-      localStorage.setItem(`lj:jar:${blob.profile}:${origin}`, JSON.stringify(jar));
+      localStorage.setItem(`zl:jar:${blob.profile}:${origin}`, JSON.stringify(jar));
       if (typeof mod.setCookies === "function") {
         try {
           await mod.setCookies(origin, jar);
@@ -178,13 +178,13 @@ export class LobsterJetEngine {
       await new Promise<void>((resolve) => {
         const ch = new MessageChannel();
         ch.port1.onmessage = () => resolve();
-        ctl.postMessage({ type: "lj:teardown" }, [ch.port2]);
+        ctl.postMessage({ type: "zl:teardown" }, [ch.port2]);
         // Unregister is idempotent; resolve even if the reply never comes.
         setTimeout(resolve, 3000);
       });
     }
-    localStorage.removeItem("lj:origins");
-    localStorage.removeItem("lj:disabled-sites");
+    localStorage.removeItem("zl:origins");
+    localStorage.removeItem("zl:disabled-sites");
   }
 
   /** PostMessage with a reply port; resolves on acknowledgement. */
@@ -210,4 +210,4 @@ export class LobsterJetEngine {
   }
 }
 
-export type { LobsterJetEngine as default };
+export type { ZeoliteEngine as default };

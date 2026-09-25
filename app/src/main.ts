@@ -4,20 +4,20 @@
    persisted per-site toggles, then navigates the frame to the encoded
    route so all subresource fetches are intercepted. */
 
-import { LobsterJetEngine } from "./engine";
+import { ZeoliteEngine } from "./engine";
 import { encodeDest } from "./codec";
 
-const status = document.getElementById("lj-status")!;
-const frame = document.getElementById("lj-frame") as HTMLIFrameElement;
+const status = document.getElementById("zl-status")!;
+const frame = document.getElementById("zl-frame") as HTMLIFrameElement;
 
 const target = new URLSearchParams(location.search).get("url");
 
 if (!target) {
-  status.textContent = "LobsterJet engine. Append ?url=<target> to embed.";
+  status.textContent = "Zeolite engine. Append ?url=<target> to embed.";
 } else {
   void (async () => {
     status.textContent = "Starting engine...";
-    const engine = new LobsterJetEngine();
+    const engine = new ZeoliteEngine();
     try {
       await engine.init();
     } catch (err) {
@@ -32,7 +32,7 @@ if (!target) {
     }
     // Rehydrate persisted per-site toggles into the fresh SW.
     try {
-      const disabled = JSON.parse(localStorage.getItem("lj:disabled-sites") ?? "[]") as string[];
+      const disabled = JSON.parse(localStorage.getItem("zl:disabled-sites") ?? "[]") as string[];
       for (const site of disabled) await engine.setSiteRoute(site, false);
     } catch { /* nothing persisted */ }
     status.style.display = "none";

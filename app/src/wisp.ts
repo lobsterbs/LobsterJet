@@ -1,5 +1,5 @@
 /* Wisp v2.1 client for the service worker and the runtime bootstrap.
-   Framing is done by lobsterjet-wisp (wasm over wisp-core), never
+   Framing is done by zeolite-wisp (wasm over wisp-core), never
    hand-rolled here. One WebSocket connection multiplexes all streams.
 
    Wire layout (wisp-core): frame = [type u8][stream_id u32 LE][payload].

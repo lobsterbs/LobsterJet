@@ -1,6 +1,6 @@
 /* libcurl-transport adapter (vendored seam).
  *
- * LobsterJet cannot legally ship @mercuryworkshop/libcurl-transport's
+ * Zeolite cannot legally ship @mercuryworkshop/libcurl-transport's
  * dist in this repository: the package is AGPL-3.0-only and the dist
  * is a 2.1 MB bundle. Instead, the CI workflow vendors it:
  *
@@ -57,12 +57,12 @@ interface LibcurlClientLike {
   session?: unknown;
 }
 
-const MISSING = "lobsterjet: libcurl transport not vendored (CI step must copy @mercuryworkshop/libcurl-transport dist into app/public/libcurl)";
+const MISSING = "zeolite: libcurl transport not vendored (CI step must copy @mercuryworkshop/libcurl-transport dist into app/public/libcurl)";
 
 /* Override for non-standard deployments (rarely needed). */
 function moduleUrl(): string {
   const g = globalThis as Record<string, unknown>;
-  if (typeof g.__LJ_LIBCURL_URL__ === "string") return g.__LJ_LIBCURL_URL__ as string;
+  if (typeof g.__ZL_LIBCURL_URL__ === "string") return g.__ZL_LIBCURL_URL__ as string;
   /* The engine origin serves the app, so the vendored bundle sits at
      /libcurl/index.mjs next to the service worker scope. */
   return new URL("libcurl/index.mjs", self.location.origin + "/").href;
@@ -87,7 +87,7 @@ async function getClient(cfg: { websocket: string }): Promise<LibcurlClientLike>
         | undefined;
       if (typeof Ctor !== "function") {
         initPromise = null;
-        throw new Error("lobsterjet: vendored libcurl bundle exports no LibcurlClient");
+        throw new Error("zeolite: vendored libcurl bundle exports no LibcurlClient");
       }
       /* Both option spellings are accepted by the client; passing the
          wisp URL through both is harmless and covers API drift. */
@@ -106,7 +106,7 @@ export async function init(cfg: { websocket: string }): Promise<void> {
 }
 
 export async function fetch(url: string, init?: RequestInit): Promise<Response> {
-  if (!client) throw new Error("lobsterjet: transport not initialized (call init first)");
+  if (!client) throw new Error("zeolite: transport not initialized (call init first)");
   const c = client;
   const method = (init?.method ?? "GET").toUpperCase();
   const headers: RawHeaders = [];
@@ -141,9 +141,9 @@ function sessionMethod(name: string): ((...args: unknown[]) => unknown) | null {
 }
 
 export async function getCookies(_url: string): Promise<Array<{ name: string; value: string }>> {
-  if (!client) throw new Error("lobsterjet: transport not initialized (call init first)");
+  if (!client) throw new Error("zeolite: transport not initialized (call init first)");
   const fn = sessionMethod("getCookies") ?? sessionMethod("dumpCookies");
-  if (!fn) throw new Error("lobsterjet: cookie export not supported by vendored transport");
+  if (!fn) throw new Error("zeolite: cookie export not supported by vendored transport");
   const out = (await fn.call(client.session, _url)) as Array<{ name: string; value: string }>;
   return Array.isArray(out) ? out : [];
 }
@@ -152,8 +152,8 @@ export async function setCookies(
   _url: string,
   _cookies: Array<{ name: string; value: string }>,
 ): Promise<void> {
-  if (!client) throw new Error("lobsterjet: transport not initialized (call init first)");
+  if (!client) throw new Error("zeolite: transport not initialized (call init first)");
   const fn = sessionMethod("setCookies") ?? sessionMethod("loadCookies");
-  if (!fn) throw new Error("lobsterjet: cookie import not supported by vendored transport");
+  if (!fn) throw new Error("zeolite: cookie import not supported by vendored transport");
   await fn.call(client.session, _url, _cookies);
 }

@@ -1,20 +1,20 @@
-/* LobsterJet service worker: interception + header surgery + streaming
+/* Zeolite service worker: interception + header surgery + streaming
    rewriter + wisp transport + SiteConfig rules + plugin hooks + the
    network inspector's log.
 
    URL shape: engine-local routes under a configurable prefix (default
-   /j/, rotatable at runtime via an lj:config message). Requests that
+   /j/, rotatable at runtime via an zl:config message). Requests that
    are engine assets (sw.js, bootstrap.js, devtools.html, ...) or the
    wisp endpoint pass through untouched. All prefix/scheme decisions go
    through ./codec helpers (bug-scout fix: "/j/" was previously hard
    -coded here while decoding used the rotated prefix).
 
    Phase 2 control plane (postMessage from the engine adapter):
-     { type: "lj:config", prefix, scheme }   rotate the URL shape
-     { type: "lj:siteRoute", site, enabled } per-site interception toggle
-     { type: "lj:teardown" }                 unregister + drop caches
+     { type: "zl:config", prefix, scheme }   rotate the URL shape
+     { type: "zl:siteRoute", site, enabled } per-site interception toggle
+     { type: "zl:teardown" }                 unregister + drop caches
    Phase 4 control plane:
-     { type: "lj:getNetLog" }                snapshot of the request log
+     { type: "zl:getNetLog" }                snapshot of the request log
    Replies are posted back on the given MessageChannel port, so the
    adapter (and the devtools page) get real acknowledgements.
 
@@ -24,7 +24,7 @@
 
 /// <reference lib="webworker" />
 import { decodePath, isEnginePath, setScheme, currentPrefix } from "./codec";
-import { LJ_WISP_URL } from "./config";
+import { ZL_WISP_URL } from "./config";
 import { ruleFor, siteRules } from "./siteconfig";
 import { applyOnRequest, applyOnResponse } from "./plugins";
 
@@ -41,7 +41,7 @@ async function ensureCurl(): Promise<void> {
   if (!curlReady) {
     curlReady = (async () => {
       const mod = await import("./libcurl-transport-vendored");
-      await mod.init({ websocket: LJ_WISP_URL });
+      await mod.init({ websocket: ZL_WISP_URL });
     })();
   }
   return curlReady;
@@ -100,7 +100,7 @@ function isCss(resp: Response): boolean {
 }
 
 /** HTML bodies: pipe response chunks through the wasm rewriter. The
-    bootstrap needs the page's real destination on window.__LJ, so we
+    bootstrap needs the page's real destination on window.__ZL, so we
     emit a tiny inline script before the first rewritten chunk.
     SiteConfig per-site rules are applied to this rewriter instance:
     injections (Phase 3 hooks) and blocked hosts (ad stripping). */
@@ -112,7 +112,7 @@ function rewriteStream(
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   const modP = rewriter();
-  const ljInit = `<script>window.__LJ=${JSON.stringify({ dest: base })};</script>`;
+  const ljInit = `<script>window.__ZL=${JSON.stringify({ dest: base })};</script>`;
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       controller.enqueue(encoder.encode(ljInit));
@@ -142,7 +142,7 @@ function rewriteStream(
 
 /* ---- Network inspector log (Phase 4) -------------------------------- */
 /* Fixed-size ring buffer of proxied requests. The devtools page polls
-   lj:getNetLog; a snapshot plus a monotonically increasing sequence
+   zl:getNetLog; a snapshot plus a monotonically increasing sequence
    lets it drop entries it has already seen. */
 
 export interface NetEntry {
@@ -176,30 +176,33 @@ function netLogPush(entry: Omit<NetEntry, "seq" | "ts">): void {
 /* Cache-first for proxied GETs with stale-while-revalidate. Freshness
    honors Cache-Control: max-age when present (no-store skips the cache
    entirely); the fallback TTL is 10 minutes. 60-entry cap, FIFO
-   eviction. x-lj-cached-at carries the stored-at time. */
+   eviction. x-zl-cached-at carries the stored-at time. */
 
-const LJ_PAGES = "lobsterjet-pages-v1";
-const LJ_CACHED_AT = "x-lj-cached-at";
-const LJ_DEFAULT_TTL = 10 * 60 * 1000;
-const LJ_PAGE_LIMIT = 60;
+export const ZEOLITE_VERSION = "1.0 Nitride";
+console.info("[Zeolite] runtime " + ZEOLITE_VERSION);
+
+const ZL_PAGES = "zeolite-pages-v1";
+const ZL_CACHED_AT = "x-zl-cached-at";
+const ZL_DEFAULT_TTL = 10 * 60 * 1000;
+const ZL_PAGE_LIMIT = 60;
 
 function cacheTtl(headers: Headers): number {
   const cc = (headers.get("cache-control") ?? "").toLowerCase();
   if (/no-store/.test(cc)) return 0;
   const m = /(?:^|[,\s])max-age=(\d+)/.exec(cc);
   if (m) return Math.min(Number(m[1]) * 1000, 24 * 60 * 60 * 1000);
-  return LJ_DEFAULT_TTL;
+  return ZL_DEFAULT_TTL;
 }
 
 async function pageCacheMatch(req: Request): Promise<Response | null> {
   let hit: Response | undefined;
   try {
-    hit = await (await caches.open(LJ_PAGES)).match(req);
+    hit = await (await caches.open(ZL_PAGES)).match(req);
   } catch {
     return null;
   }
   if (!hit) return null;
-  const at = Number(hit.headers.get(LJ_CACHED_AT) ?? 0);
+  const at = Number(hit.headers.get(ZL_CACHED_AT) ?? 0);
   const ttl = cacheTtl(hit.headers);
   if (!ttl) return null;
   if (Date.now() - at < ttl) return hit;
@@ -217,12 +220,12 @@ async function pageCacheStore(req: Request, resp: Response): Promise<void> {
   const ttl = cacheTtl(resp.headers);
   if (!ttl || resp.status !== 200) return;
   try {
-    const cache = await caches.open(LJ_PAGES);
+    const cache = await caches.open(ZL_PAGES);
     const stored = new Response(resp.body, { status: 200, headers: resp.headers });
-    stored.headers.set(LJ_CACHED_AT, String(Date.now()));
+    stored.headers.set(ZL_CACHED_AT, String(Date.now()));
     await cache.put(req, stored);
     const keys = await cache.keys();
-    while (keys.length > LJ_PAGE_LIMIT) {
+    while (keys.length > ZL_PAGE_LIMIT) {
       await cache.delete(keys.shift()!);
     }
   } catch {
@@ -290,7 +293,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
 
   const dest = decodePath(url.pathname);
   if (!dest) {
-    e.respondWith(new Response("lobsterjet: bad route", { status: 404 }));
+    e.respondWith(new Response("zeolite: bad route", { status: 404 }));
     return;
   }
   // Query string travels outside the encoded destination.
@@ -298,7 +301,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
 
   if (siteDisabled(target)) {
     e.respondWith(
-      new Response("lobsterjet: site disabled for this engine", {
+      new Response("zeolite: site disabled for this engine", {
         status: 403,
         headers: { "content-type": "text/plain" },
       }),
@@ -338,7 +341,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           redirect: "follow",
         });
         const headers = stripHostile(resp.headers);
-        headers.set("x-lj-proxy", "1");
+        headers.set("x-zl-proxy", "1");
         void applyOnResponse(plugins, target, resp.status, headers);
         netLogPush({
           method: e.request.method,
@@ -374,7 +377,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           ms: Date.now() - t0,
           err: String(err),
         });
-        return new Response(`lobsterjet: upstream fetch failed: ${String(err)}`, {
+        return new Response(`zeolite: upstream fetch failed: ${String(err)}`, {
           status: 502,
           headers: { "content-type": "text/plain" },
         });
@@ -402,12 +405,12 @@ function forwardedHeaders(req: Request): Headers {
 /* ---- Control plane (Phase 2 + Phase 4) ---------------------------- */
 
 interface ControlMessage {
-  type: "lj:config" | "lj:siteRoute" | "lj:teardown" | "lj:ping" | "lj:getNetLog";
+  type: "zl:config" | "zl:siteRoute" | "zl:teardown" | "zl:ping" | "zl:getNetLog";
   prefix?: string;
   scheme?: "b64u" | "mirror";
   site?: string;
   enabled?: boolean;
-  /** Delta sync cursor for lj:getNetLog. */
+  /** Delta sync cursor for zl:getNetLog. */
   since?: number;
 }
 
@@ -417,15 +420,15 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
   const reply = (payload: unknown) => port?.postMessage(payload);
 
   switch (msg?.type) {
-    case "lj:ping":
+    case "zl:ping":
       reply({ ok: true });
       break;
-    case "lj:config":
+    case "zl:config":
       // Rotate the URL shape at runtime.
       setScheme(msg.prefix ?? "/j/", msg.scheme ?? "b64u");
       reply({ ok: true });
       break;
-    case "lj:siteRoute":
+    case "zl:siteRoute":
       if (!msg.site) {
         reply({ ok: false, error: "missing site" });
         break;
@@ -434,7 +437,7 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
       else disabledSites.delete(msg.site);
       reply({ ok: true });
       break;
-    case "lj:teardown":
+    case "zl:teardown":
       e.waitUntil(
         (async () => {
           // Drop every cache this SW owns, then unregister. Existing
@@ -447,11 +450,12 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
         })(),
       );
       break;
-    case "lj:getNetLog": {
+    case "zl:getNetLog": {
       // Delta sync: the devtools page sends the last seq it has seen and
       // gets only newer entries, so polling stays cheap at any ring size.
       const since = (msg as { since?: number }).since ?? 0;
-      reply({ entries: netLog.filter((x) => x.seq > since), lastSeq: netSeq, generation: netGeneration });
+      reply({ entries: netLog.filter((x) => x.seq > since), lastSeq: netSeq, generation: netGeneration,
+          version: ZEOLITE_VERSION, });
       break;
     }
     default:

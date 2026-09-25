@@ -1,13 +1,13 @@
 /* URL codec (TS side mirrors crates/rewriter/src/encode.rs).
    Destination encoded as base64url under a configurable prefix. The
    scheme is swappable so the URL shape can rotate (Phase 2): the SW
-   accepts an lj:config message to change prefix/scheme at runtime, so a
+   accepts an zl:config message to change prefix/scheme at runtime, so a
    deployment can rotate its path shape without a client rebuild.
 
    Bug-scout note: the SW previously hard-coded "/j/" in its route
    check, the JsRewriter ctor and rewriteCss calls while decoding used
    the rotated prefix: encoding and decoding disagreed after an
-   lj:config rotation. Everything now goes through the helpers below. */
+   zl:config rotation. Everything now goes through the helpers below. */
 
 const B64URL =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";

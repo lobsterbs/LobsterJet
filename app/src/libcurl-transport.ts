@@ -22,6 +22,6 @@ export async function setTransport(cfg: TransportConfig): Promise<void> {
 }
 
 export async function curlFetch(url: string, init?: RequestInit): Promise<Response> {
-  if (!transport) throw new Error("lobsterjet: libcurl transport not initialised");
+  if (!transport) throw new Error("zeolite: libcurl transport not initialised");
   return transport.fetch(url, init);
 }

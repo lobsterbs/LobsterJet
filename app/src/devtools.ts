@@ -1,6 +1,6 @@
-/* LobsterJet DevTools page (Phase 4): network inspector. This page is
+/* Zeolite DevTools page (Phase 4): network inspector. This page is
    served by the engine origin, so it is controlled by the same SW and
-   can postMessage it. It polls lj:getNetLog once per second and keeps a
+   can postMessage it. It polls zl:getNetLog once per second and keeps a
    stable sort. The network inspector is the priority deliverable; a
    DOM/CSS inspector over a postMessage bridge into proxied pages
    remains a stretch goal. */
@@ -118,7 +118,7 @@ function tick(): void {
     }
     lastSeq = seq ?? lastSeq;
   };
-  ctl.postMessage({ type: "lj:getNetLog", since: lastSeq }, [ch.port2]);
+  ctl.postMessage({ type: "zl:getNetLog", since: lastSeq }, [ch.port2]);
 }
 
 tick();

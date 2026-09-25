@@ -1,4 +1,4 @@
-/* LobsterJet runtime bootstrap. Injected into proxied HTML by the
+/* Zeolite runtime bootstrap. Injected into proxied HTML by the
    rewriter (<script src="/bootstrap.js"> right after <head> opens).
 
    Budget: under 5 KB minified (CI enforces). It only patches behavior:
@@ -7,28 +7,28 @@
    paths that the service worker intercepts natively.
 
    Page-global contract (set by the rewriter at injection time):
-     window.__LJ = { dest: "https://real.site/page" }
+     window.__ZL = { dest: "https://real.site/page" }
    falls back to document.baseURI when absent. */
 
 declare global {
   interface Window {
-    __LJ?: { dest: string };
+    __ZL?: { dest: string };
   }
 }
 
 const w = window as unknown as Record<string, unknown>;
-const LJ = (window.__LJ ?? { dest: document.baseURI }) as { dest: string };
+const ZL = (window.__ZL ?? { dest: document.baseURI }) as { dest: string };
 
 /* ---- per-site storage scoping ------------------------------------- */
 /* Everything is prefixed by a short stable hash of the site origin:
    engine-origin storage is never touched by a proxied site, and two
    proxied sites never see each other's data. The prefix doubles as the
-   session-export filter: everything under "lj:<site>:" travels in the
+   session-export filter: everything under "zl:<site>:" travels in the
    blob, everything else stays put. */
 
 function siteKey(): string {
   try {
-    return String(new URL(LJ.dest).origin);
+    return String(new URL(ZL.dest).origin);
   } catch {
     return "unknown";
   }
@@ -43,7 +43,7 @@ function fnv1a(s: string): string {
   return h.toString(36);
 }
 
-const SITE = "lj:" + fnv1a(siteKey());
+const SITE = "zl:" + fnv1a(siteKey());
 const KEY = (k: string) => SITE + ":" + k;
 
 {
@@ -136,7 +136,7 @@ const KEY = (k: string) => SITE + ":" + k;
     | undefined;
   if (OWS) {
     const wispUrl =
-      ((globalThis as { __LJ_WISP__?: string }).__LJ_WISP__) ??
+      ((globalThis as { __ZL_WISP__?: string }).__ZL_WISP__) ??
       (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/wisp/";
 
     type WispC = import("./wisp").WispClient;
