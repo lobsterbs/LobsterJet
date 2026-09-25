@@ -108,7 +108,12 @@ jobs:
           npm run build
       - name: Extension subsystem unit tests
         run: |
-          cd app && npx vitest run --reporter=basic
+          cd app
+          if ! npx vitest run --reporter=default > vitest.out 2>&1; then
+            grep -E "FAIL|AssertionError|Error:" vitest.out | head -9 | while IFS= read -r l; do echo "::error::VITEST $l"; done
+            tail -40 vitest.out
+            exit 1
+          fi
       - name: Verify vendored transport made it into the build
         run: test -f app/dist/libcurl/index.mjs
       - name: Bootstrap size budget (must stay under 5 KB minified)
