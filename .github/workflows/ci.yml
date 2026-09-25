@@ -19,8 +19,13 @@ jobs:
         run: |
           cargo fmt --all --check > fmt.out 2>&1 || true
           if [ -s fmt.out ]; then
-            D=$(head -c 700 fmt.out | sed ':a;N;$!ba;s/\n/%0A/g')
-            echo "::error::FMT NOT CLEAN%0A$D"
+            split -b 500 fmt.out fxc.
+            n=0
+            for p in fxc.*; do
+              n=$((n+1)); [ $n -gt 8 ] && break
+              D=$(sed ':a;N;$!ba;s/\n/%0A/g' $p)
+              echo "::error::FMT[$n]%0A$D"
+            done
           fi
       - name: diag clippy
         run: |

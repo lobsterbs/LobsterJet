@@ -32,7 +32,9 @@ impl Default for RewriteConfig {
     fn default() -> Self {
         Self {
             origin: String::new(),
-            codec: Codec::Base64Url { prefix: "/j/".into() },
+            codec: Codec::Base64Url {
+                prefix: "/j/".into(),
+            },
             rewrite_css: true,
             rewrite_js_literals: true,
             inject_bootstrap: true,
@@ -48,7 +50,12 @@ impl RewriteConfig {
     pub fn encode_url(&self, dest: &str) -> String {
         match &self.codec {
             Codec::Base64Url { prefix } => {
-                format!("{}{}{}", self.origin, prefix, crate::encode::b64u_encode(dest.as_bytes()))
+                format!(
+                    "{}{}{}",
+                    self.origin,
+                    prefix,
+                    crate::encode::b64u_encode(dest.as_bytes())
+                )
             }
             Codec::PathMirror => format!("{}/m/{}", self.origin, dest),
         }

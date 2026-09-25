@@ -171,7 +171,7 @@ impl Rewriter {
                     let Some(ci) = find_ci(&self.buf, &close) else { break };
                     let raw = self.buf[..ci].to_string();
                     if self.cur_tag == "style" && self.cfg.rewrite_css {
-                        out.push_str(&css::rewrite_stylesheet(&raw, |u| self.enc(u)));
+                        out.push_str(&css::rewrite_stylesheet(&raw, &|u| self.enc(u)));
                     } else if self.cur_tag == "script" && self.cfg.rewrite_js_literals {
                         out.push_str(&crate::js::rewrite_script(&raw, |u| self.enc(u)));
                     } else {
