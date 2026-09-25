@@ -154,8 +154,12 @@ export interface NetEntry {
   /** Real destination URL. */
   dest: string;
   status: number;
-  /** Total time until response headers, ms. */
+  /** Time until response headers (TTFB through the wisp hop), ms. */
   ms: number;
+  /** Response body size: content-length when present, else -1. */
+  bytes: number;
+  /** Plugin verdict from the onRequest hooks, when any plugin ran. */
+  verdict?: string;
   err?: string;
 }
 
@@ -245,6 +249,8 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           dest: target,
           status: resp.status,
           ms: Date.now() - t0,
+          bytes: Number(resp.headers.get("content-length") ?? -1),
+          verdict: plugins.length ? "pass:" + plugins.length : undefined,
         });
         if (isHtml(resp) && resp.body) {
           return new Response(rewriteStream(resp.body, target, rule), {
@@ -303,6 +309,8 @@ interface ControlMessage {
   scheme?: "b64u" | "mirror";
   site?: string;
   enabled?: boolean;
+  /** Delta sync cursor for lj:getNetLog. */
+  since?: number;
 }
 
 self.addEventListener("message", (e: ExtendableMessageEvent) => {
@@ -341,10 +349,13 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
         })(),
       );
       break;
-    case "lj:getNetLog":
-      // Snapshot for the devtools network inspector.
-      reply({ entries: netLog, lastSeq: netSeq });
+    case "lj:getNetLog": {
+      // Delta sync: the devtools page sends the last seq it has seen and
+      // gets only newer entries, so polling stays cheap at any ring size.
+      const since = (msg as { since?: number }).since ?? 0;
+      reply({ entries: netLog.filter((x) => x.seq > since), lastSeq: netSeq });
       break;
+    }
     default:
       reply({ ok: false, error: "unknown message" });
   }

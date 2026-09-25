@@ -13,6 +13,8 @@ interface NetEntry {
   dest: string;
   status: number;
   ms: number;
+  bytes: number;
+  verdict?: string;
   err?: string;
 }
 
@@ -20,11 +22,19 @@ const rows = document.getElementById("rows")!;
 const paused = document.getElementById("paused")!;
 
 let entries: NetEntry[] = [];
+let lastSeq = 0;
 let sortKey: keyof NetEntry = "seq";
 let sortDesc = false;
 
 function fmtTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour12: false });
+}
+
+function fmtBytes(n: number): string {
+  if (n < 0) return "-";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KiB";
+  return (n / 1024 / 1024).toFixed(1) + " MiB";
 }
 
 function render(): void {
@@ -45,6 +55,8 @@ function render(): void {
         e.dest,
         String(e.status),
         String(e.ms),
+        fmtBytes(e.bytes ?? -1),
+        e.verdict ?? "",
       ];
       cells.forEach((c, i) => {
         const td = document.createElement("td");
@@ -85,13 +97,17 @@ function tick(): void {
   paused.textContent = "";
   const ch = new MessageChannel();
   ch.port1.onmessage = (ev) => {
-    const { entries: snap } = (ev.data ?? { entries: [] }) as { entries: NetEntry[] };
-    if (snap.length !== entries.length || snap.at(-1)?.seq !== entries.at(-1)?.seq) {
-      entries = snap;
+    const { entries: fresh, lastSeq: seq } = (ev.data ?? { entries: [] }) as {
+      entries: NetEntry[];
+      lastSeq: number;
+    };
+    if (fresh.length) {
+      entries = [...entries, ...fresh].slice(-500);
       render();
     }
+    lastSeq = seq ?? lastSeq;
   };
-  ctl.postMessage({ type: "lj:getNetLog" }, [ch.port2]);
+  ctl.postMessage({ type: "lj:getNetLog", since: lastSeq }, [ch.port2]);
 }
 
 tick();
