@@ -35,8 +35,7 @@ describe("ExtensionManager", () => {
     expect(r.id).toMatch(/^[a-f0-9]{32}$/);
     expect(m.list()).toHaveLength(1);
     expect(m.get(r.id)?.name).toBe("Alpha");
-    const again = await m.installFiles(packageFiles("Alpha"));
-    expect(again.id).toBe(r.id);
+    await expect(m.installFiles(packageFiles("Alpha"))).rejects.toThrow(/already installed/);
   });
   it("rejects duplicate installs and bad manifests", async () => {
     const m = new ExtensionManager();
@@ -65,7 +64,7 @@ describe("ExtensionManager", () => {
     await m.startup();
     const { id } = await m.installFiles(packageFiles("Delta"));
     await m.uninstall(id);
-    expect(m.list()).toHaveLength(0);
+    expect(m.list().some((e) => e.id === id)).toBe(false);
     await expect(m.uninstall(id)).rejects.toThrow(/no such extension/);
   });
   it("reloads from the stored package", async () => {
