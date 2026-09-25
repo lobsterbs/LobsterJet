@@ -1,0 +1,20 @@
+{
+  "manifest_version": 2,
+  "name": "Zeolite Messaging Fixture",
+  "version": "1.0",
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "cs.js"
+      ]
+    }
+  ]
+}

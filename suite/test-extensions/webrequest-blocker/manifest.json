@@ -1,0 +1,17 @@
+{
+  "manifest_version": 2,
+  "name": "Zeolite WebRequest Blocker Fixture",
+  "version": "1.0",
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  }
+}

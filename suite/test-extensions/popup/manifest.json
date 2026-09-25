@@ -1,0 +1,9 @@
+{
+  "manifest_version": 2,
+  "name": "Zeolite Popup Fixture",
+  "version": "1.0",
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "Popup"
+  }
+}
