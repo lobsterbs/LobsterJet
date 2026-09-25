@@ -535,12 +535,13 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
          host verification: the sender page's destination must match
          the extension's declared content-script patterns. */
       const em = msg as { extId?: string; msg?: unknown };
-      if (!em.extId) {
+      const extId = em.extId;
+      if (!extId) {
         reply({ ok: false, error: "missing extId" });
         break;
       }
       e.waitUntil(
-        handleExtMessage(e, em).then(
+        handleExtMessage(e, { extId, msg: em.msg }).then(
           (r) => reply(r),
           (err) => reply({ ok: false, error: String(err) }),
         ),
@@ -560,7 +561,7 @@ async function handleExtMessage(
   ev: ExtendableMessageEvent,
   m: { extId: string; msg: unknown },
 ): Promise<{ ok: boolean; response?: unknown; error?: string }> {
-  const src = ev.source;
+  const src = ev.source as Client | null;
   if (!src || !src.url) return { ok: false, error: "unknown sender" };
   const su = new URL(src.url, self.location.origin);
   const dest = decodePath(su.pathname) + su.search;
