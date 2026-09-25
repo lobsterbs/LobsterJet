@@ -1,4 +1,4 @@
-/* Compat suite: nightly probes through a running LobsterJet engine,
+/* Compat suite: nightly probes through a running Zeolite engine,
    compared against direct access. Produces scoreboard.json and
    scoreboard.md. Failures must become SiteConfig rules + a probe test,
    never a hardcoded hack in the engine.
@@ -85,7 +85,7 @@ const scoreboard = {
 writeFileSync("suite/scoreboard.json", JSON.stringify(scoreboard, null, 2));
 
 const md = [
-  "# LobsterJet compat scoreboard",
+  "# Zeolite compat scoreboard",
   "",
   `Generated: ${scoreboard.generated}`,
   `Engine: ${BASE}`,
