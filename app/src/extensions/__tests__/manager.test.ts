@@ -92,7 +92,8 @@ describe("buildApi", () => {
     const { browser, chrome } = buildApi(rec, { extensionId: id, context: "background", url: null }, { messenger, storage });
     expect((browser.runtime as Record<string, unknown>)["id"]).toBe(id);
     expect((chrome as { runtime: Record<string, unknown> }).runtime["id"]).toBe(id);
-    expect((browser.runtime as Record<string, unknown>)["getURL"]("x.png")).toBe("extension://" + id + "/x.png");
+    const getURL = (browser.runtime as Record<string, unknown>)["getURL"] as (p: string) => string;
+    expect(getURL("x.png")).toBe("extension://" + id + "/x.png");
     await expect(
       (browser.runtime as Record<string, (...a: unknown[]) => Promise<unknown>>)["sendMessage"]({}),
     ).rejects.toThrow(/Receiving end/);
