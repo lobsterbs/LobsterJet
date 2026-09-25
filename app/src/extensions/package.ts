@@ -32,7 +32,8 @@ function u32(b: Uint8Array, o: number): number {
 }
 
 async function inflateRaw(comp: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([comp]).stream().pipeThrough(
+  const copy = comp.slice();
+  const stream = new Blob([copy.buffer as ArrayBuffer]).stream().pipeThrough(
     new DecompressionStream("deflate-raw")
   );
   const buf = await new Response(stream).arrayBuffer();

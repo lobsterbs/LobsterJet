@@ -11,7 +11,7 @@
 
 import type { ExtensionRecord } from "./types";
 import { extensionUrl } from "./origin";
-import type { ExtensionStorageArea } from "./storage";
+import type { ExtensionStorageArea, StorageValue } from "./storage";
 import type { ExtensionMessenger, MessageListener, ConnectListener, MessageSender } from "./messaging";
 
 export interface EventNamespace<L> {
@@ -37,7 +37,7 @@ export interface ApiDeps {
 
 function wrapArea(area: ExtensionStorageArea): Record<string, unknown> {
   return {
-    get: (keys?: string | string[] | Record<string, unknown> | null) => area.get(keys),
+    get: (keys?: string | string[] | Record<string, StorageValue> | null) => area.get(keys),
     set: (items: Record<string, unknown>) => area.set(items),
     remove: (keys: string | string[]) => area.remove(keys),
     clear: () => area.clear(),

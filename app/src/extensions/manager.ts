@@ -77,7 +77,8 @@ export class ExtensionManager {
   }
 
   private async deriveId(manifestBytes: Uint8Array): Promise<ExtensionId> {
-    const digest = await crypto.subtle.digest("SHA-256", manifestBytes);
+    const copy = manifestBytes.slice();
+    const digest = await crypto.subtle.digest("SHA-256", copy.buffer as ArrayBuffer);
     const hex = Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
