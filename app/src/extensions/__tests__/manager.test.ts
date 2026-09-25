@@ -50,7 +50,8 @@ describe("ExtensionManager", () => {
   it("gates resources on enabled state and web_accessible_resources", async () => {
     const m = new ExtensionManager();
     await m.startup();
-    const { id } = await m.installFiles(packageFiles("Gamma"));
+    const { 
+id } = await m.installFiles(packageFiles("Gamma"));
     const secret = await m.getResource(id, "/secret.txt", { fromWeb: true });
     expect(secret).toBeNull();
     const internal = await m.getResource(id, "/secret.txt", { fromWeb: false });
@@ -91,10 +92,11 @@ describe("buildApi", () => {
     };
     const { browser, chrome } = buildApi(rec, { extensionId: id, context: "background", url: null }, { messenger, storage });
     expect((browser.runtime as Record<string, unknown>)["id"]).toBe(id);
-    expect((chrome.runtime as Record<string, unknown>)["id"]).toBe(id);
+    expect((chrome as { runtime: Record<string, unknown> }).runtime["id"]).toBe(id);
     expect((browser.runtime as Record<string, unknown>)["getURL"]("x.png")).toBe("extension://" + id + "/x.png");
     await expect(
-      (browser.runtime as Record<string, (...a: unknown[]) => Promise<unknown>>)["sendMessage"]({}),
+      (browser.runtime as Record
+<string, (...a: unknown[]) => Promise<unknown>>)["sendMessage"]({}),
     ).rejects.toThrow(/Receiving end/);
     messenger.onMessage(id, (_msg, _from, send) => send({ ok: 1 }));
     await expect(
