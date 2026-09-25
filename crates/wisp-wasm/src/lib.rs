@@ -21,7 +21,9 @@ pub struct JsFrame {
     pub packet_type: u8,
     #[wasm_bindgen(js_name = "streamId")]
     pub stream_id: u32,
-    pub payload: Vec<u8>,
+    // wasm-bindgen pub struct fields must be Copy; expose the payload
+    // through a getter instead so JS sees the same `frame.payload` API.
+    payload: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -45,6 +47,10 @@ impl JsFrame {
         } else {
             self.payload.first().copied().unwrap_or(0)
         }
+    }
+    #[wasm_bindgen(getter, js_name = "payload")]
+    pub fn payload(&self) -> Vec<u8> {
+        self.payload.clone()
     }
     #[wasm_bindgen(getter, js_name = "bufferRemaining")]
     pub fn buffer_remaining(&self) -> u32 {

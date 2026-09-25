@@ -6,8 +6,6 @@ on:
   schedule:
     - cron: "0 3 * * *" # nightly compat suite
 
-permissions:
-  contents: write
 
 
 jobs:
@@ -18,48 +16,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: One-shot rustfmt (commits formatted code back)
-        run: |
-          cargo fmt --all
-          if ! git diff --quiet; then
-            git config user.name "zeolite-ci"
-            git config user.email "ci@zeolite.invalid"
-            git commit -am "style: cargo fmt --all (one-shot CI formatting)"
-            git push origin HEAD:main
-          fi
-      - name: diag fmt
-        run: |
-          cargo fmt --all --check > fmt.out 2>&1 || true
-          if [ -s fmt.out ]; then
-            split -b 990 fmt.out fxc.
-            n=0
-            for p in fxc.*; do
-              n=$((n+1)); [ $n -gt 9 ] && break
-              D=$(sed ':a;N;$!ba;s/\n/%0A/g' $p)
-              echo "::error::FMT[$n]%0A$D"
-            done
-          fi
-      - name: diag clippy
-        run: |
-          cargo clippy --workspace --all-targets -- -D warnings > clippy.out 2>&1 || true
-          if grep -q "^error" clippy.out; then
-            D=$(grep -m1 -A8 "^error" clippy.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
-            echo "::error::CLIPPY%0A$D"
-          fi
-      - name: diag test
-        run: |
-          cargo test --workspace > test.out 2>&1 || true
-          if grep -qE "^error|FAILED|panicked" test.out; then
-            D=$(grep -m1 -B2 -A8 -E "^error|FAILED|panicked" test.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
-            echo "::error::TEST%0A$D"
-          fi
-      - name: diag wasm-check
-        run: |
-          cargo check -p zeolite-rewriter -p zeolite-wisp --target wasm32-unknown-unknown > wc.out 2>&1 || true
-          if grep -q "^error" wc.out; then
-            D=$(grep -m1 -A8 "^error" wc.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
-            echo "::error::WASMCHECK%0A$D"
-          fi
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo check -p zeolite-rewriter -p zeolite-wisp --target wasm32-unknown-unknown
 
   wasm:
     runs-on: ubuntu-latest
