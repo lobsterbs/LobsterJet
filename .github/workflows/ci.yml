@@ -27,7 +27,8 @@ jobs:
           cargo test --workspace > test.out 2>&1 || true
           grep -m1 -B6 -A14 -E "^error|FAILED|panicked at" test.out > testslice.out || true
           if [ -s testslice.out ]; then
-            D=$(head -c 900 testslice.out | sed ':a;N;$!ba;s/\n/%0A/g')
+            D=$(head -c 900 testslice.out | sed ':a;N;$!ba;s/
+/%0A/g')
             echo "::error::TEST%0A$D"
             exit 1
           fi
@@ -44,7 +45,8 @@ jobs:
       - name: Build rewriter wasm
         run: |
           if ! wasm-pack build crates/rewriter --target web --release --out-name rewriter_wasm > wasm1.out 2>&1; then
-            D=$(grep -m1 -A10 -i "error" wasm1.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
+            D=$(grep -m1 -A10 -i "error" wasm1.out | head -c 700 | sed ':a;N;$!ba;s/
+/%0A/g')
             echo "::error::REWASM%0A$D"
             exit 1
           fi
@@ -53,7 +55,8 @@ jobs:
       - name: Build wisp wasm
         run: |
           if ! wasm-pack build crates/wisp-wasm --target web --release --out-name wisp_wasm > wasm2.out 2>&1; then
-            D=$(grep -m1 -A10 -i "error" wasm2.out | head -c 700 | sed ':a;N;$!ba;s/\n/%0A/g')
+            D=$(grep -m1 -A10 -i "error" wasm2.out | head -c 700 | sed ':a;N;$!ba;s/
+/%0A/g')
             echo "::error::WIWASM%0A$D"
             exit 1
           fi
@@ -94,7 +97,8 @@ jobs:
           } 2>&1 | tee vendor.out
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
-            D=$(tail -c 700 vendor.out | sed ':a;N;$!ba;s/\n/%0A/g')
+            D=$(tail -c 700 vendor.out | sed ':a;N;$!ba;s/
+/%0A/g')
             echo "::error::VENDOR%0A$D"
             exit 1
           fi
@@ -112,7 +116,7 @@ jobs:
         run: |
           SIZE=$(wc -c < app/dist/bootstrap.js)
           echo "bootstrap.js: $SIZE bytes"
-          test "$SIZE" -lt 5120
+          if [ "$SIZE" -ge 5120 ]; then echo "::error::BOOTSTRAP $SIZE bytes (budget 5120)"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: zeolite-app
