@@ -48,6 +48,11 @@ export async function idbGetAll(db: IDBDatabase, store: string): Promise<unknown
   return wrap(tx(db, store, "readonly").getAll());
 }
 
+export async function idbGetAllKeys(db: IDBDatabase, store: string): Promise<string[]> {
+  const req = tx(db, store, "readonly").getAllKeys();
+  return (await wrap(req)) as string[];
+}
+
 export async function idbPut(db: IDBDatabase, store: string, key: string, value: unknown): Promise<void> {
   await wrap(tx(db, store, "readwrite").put(value, key));
 }

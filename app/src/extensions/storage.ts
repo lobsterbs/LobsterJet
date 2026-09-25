@@ -8,7 +8,7 @@
    from every other extension. */
 
 import type { ExtensionId } from "./types";
-import { idbGetAll, idbPut, openDb, STORE_STORAGE } from "./idb";
+import { idbGet, idbGetAllKeys, idbPut, openDb, STORE_STORAGE } from "./idb";
 
 export type StorageAreaName = "local" | "sync" | "session";
 export type StorageValue = null | boolean | number | string | StorageValue[] | { [k: string]: StorageValue };
@@ -52,14 +52,13 @@ export class ExtensionStorageArea {
 
   async load(db: IDBDatabase): Promise<void> {
     if (this.area === "session") return;
-    const rows = (await idbGetAll(db, STORE_STORAGE)) as Array<[string, string]>;
-    for (const row of rows) {
-      if (!Array.isArray(row) || row.length !== 2) continue;
-      const [k, json] = row;
-      if (typeof k !== "string" || typeof json !== "string") continue;
-      const prefix = this.id + ":" + this.area + ":";
+    const keys = await idbGetAllKeys(db, STORE_STORAGE);
+    const prefix = this.id + ":" + this.area + ":";
+    for (const k of keys) {
       if (!k.startsWith(prefix)) continue;
-      this.mem.set(k.slice(prefix.length), json);
+      const val = await idbGet(db, STORE_STORAGE, k);
+      if (typeof val !== "string") continue;
+      this.mem.set(k.slice(prefix.length), val);
     }
     this.recount();
   }
