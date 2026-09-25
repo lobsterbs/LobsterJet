@@ -17,7 +17,11 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: clippy
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings > clippy.out 2>&1 || true
+          grep -E "^(error|warning)(\[|:)" clippy.out | head -9 | while IFS= read -r l; do echo "::error::CLIPPY $l"; done
+          if grep -qE "^(error|warning)(\[|:)" clippy.out; then exit 1; fi
       - run: cargo test --workspace
       - run: cargo check -p zeolite-rewriter -p zeolite-wisp --target wasm32-unknown-unknown
 
@@ -75,11 +79,18 @@ jobs:
       # obligations for that bundle and its combined work.
       - name: Vendor libcurl transport
         run: |
-          npm install --prefix .vendor @mercuryworkshop/libcurl-transport@2.0.5
-          mkdir -p app/public/libcurl
-          cp -r .vendor/node_modules/@mercuryworkshop/libcurl-transport/dist/. app/public/libcurl/
-          # libcurl.js wasm binary, loaded by the transport at runtime.
-          cp -r .vendor/node_modules/libcurl.js/dist app/public/libcurl/libcurl.js
+          {
+            npm install --prefix .vendor @mercuryworkshop/libcurl-transport@2.0.5 &&
+            mkdir -p app/public/libcurl &&
+            cp -r .vendor/node_modules/@mercuryworkshop/libcurl-transport/dist/. app/public/libcurl/ &&
+            cp -r .vendor/node_modules/libcurl.js/dist app/public/libcurl/libcurl.js
+          } 2>&1 | tee vendor.out
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            D=$(tail -c 700 vendor.out | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::VENDOR%0A$D"
+            exit 1
+          fi
           ls -la app/public/libcurl
       - run: cd app && npm install && npx tsc --noEmit && npm run build
       - name: Verify vendored transport made it into the build
