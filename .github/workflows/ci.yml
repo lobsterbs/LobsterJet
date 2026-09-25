@@ -22,7 +22,15 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings > clippy.out 2>&1 || true
           grep -E "^(error|warning)(\[|:)" clippy.out | head -9 | while IFS= read -r l; do echo "::error::CLIPPY $l"; done
           if grep -qE "^(error|warning)(\[|:)" clippy.out; then exit 1; fi
-      - run: cargo test --workspace
+      - name: test
+        run: |
+          cargo test --workspace > test.out 2>&1 || true
+          grep -m1 -B6 -A14 -E "^error|FAILED|panicked at" test.out > testslice.out || true
+          if [ -s testslice.out ]; then
+            D=$(head -c 900 testslice.out | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::TEST%0A$D"
+            exit 1
+          fi
       - run: cargo check -p zeolite-rewriter -p zeolite-wisp --target wasm32-unknown-unknown
 
   wasm:
@@ -82,8 +90,7 @@ jobs:
           {
             npm install --prefix .vendor @mercuryworkshop/libcurl-transport@2.0.5 &&
             mkdir -p app/public/libcurl &&
-            cp -r .vendor/node_modules/@mercuryworkshop/libcurl-transport/dist/. app/public/libcurl/ &&
-            cp -r .vendor/node_modules/libcurl.js/dist app/public/libcurl/libcurl.js
+            cp -r .vendor/node_modules/@mercuryworkshop/libcurl-transport/dist/. app/public/libcurl/
           } 2>&1 | tee vendor.out
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
