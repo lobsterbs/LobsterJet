@@ -1,9 +1,9 @@
 [package]
-name = "lobsterjet-wisp"
+name = "zeolite-wisp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "wasm-bindgen wrapper over wisp-core: client-side frame encode/parse for the LobsterJet service worker"
+description = "wasm-bindgen wrapper over wisp-core: client-side frame encode/parse for the Zeolite service worker"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

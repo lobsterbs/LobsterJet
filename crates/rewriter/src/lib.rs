@@ -1,4 +1,4 @@
-//! LobsterJet rewriter: streaming HTML/CSS/JS-literal URL rewriting.
+//! Zeolite rewriter: streaming HTML/CSS/JS-literal URL rewriting.
 //!
 //! Two faces:
 //! - Pure Rust API (`Rewriter` + `rewrite_html`), used by tests and any
@@ -9,6 +9,8 @@
 //! Nothing is ever buffered as a whole document: `process(chunk)` emits
 //! as much rewritten output as it can and retains only the incomplete
 //! token tail for the next call.
+
+pub const VERSION: &str = "1.0 Nitride";
 
 pub mod config;
 pub mod encode;

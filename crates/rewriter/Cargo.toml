@@ -1,9 +1,9 @@
 [package]
-name = "lobsterjet-rewriter"
+name = "zeolite-rewriter"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Streaming HTML/CSS/JS-literal URL rewriter for LobsterJet (wasm-bindgen entry + pure-Rust API)"
+description = "Streaming HTML/CSS/JS-literal URL rewriter for Zeolite (wasm-bindgen entry + pure-Rust API)"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
