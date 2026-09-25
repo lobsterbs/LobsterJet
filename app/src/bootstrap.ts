@@ -41,6 +41,17 @@ function fnv1a(s: string): string {
 const SITE = "zl:" + fnv1a(siteKey());
 const KEY = (k: string) => SITE + ":" + k;
 
+/* One scanner for clear/key/length: keeps the scoped Storage cheap
+   and the minified bootstrap inside its CI size budget. */
+function siteKeys(store: Storage): string[] {
+  const ks: string[] = [];
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i);
+    if (k && k.startsWith(SITE + ":")) ks.push(k);
+  }
+  return ks;
+}
+
 {
   const LS = w.localStorage;
   if (LS && typeof LS === "object") {
@@ -50,28 +61,11 @@ const KEY = (k: string) => SITE + ":" + k;
       setItem: (k: string, v: string) => store.setItem(KEY(k), v),
       removeItem: (k: string) => store.removeItem(KEY(k)),
       clear: () => {
-        const ks: string[] = [];
-        for (let i = 0; i < store.length; i++) {
-          const k = store.key(i);
-          if (k && k.startsWith(SITE + ":")) ks.push(k);
-        }
-        ks.forEach((k) => store.removeItem(k));
+        siteKeys(store).forEach((k) => store.removeItem(k));
       },
-      key: (i: number) => {
-        const ks: string[] = [];
-        for (let j = 0; j < store.length; j++) {
-          const k = store.key(j);
-          if (k && k.startsWith(SITE + ":")) ks.push(k);
-        }
-        return ks[i] ?? null;
-      },
+      key: (i: number) => siteKeys(store)[i] ?? null,
       get length() {
-        let n = 0;
-        for (let j = 0; j < store.length; j++) {
-          const k = store.key(j);
-          if (k && k.startsWith(SITE + ":")) n++;
-        }
-        return n;
+        return siteKeys(store).length;
       },
     };
     const scoped = Object.assign(Object.create(Storage.prototype), api) as Storage;
