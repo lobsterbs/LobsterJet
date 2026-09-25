@@ -127,10 +127,10 @@ function parseAction(
   manifest: Record<string, unknown>,
   mv: 2 | 3
 ): ActionSpec | null {
-  const pick = (v: unknown): ActionSpec | null => {
+  const pick = (v: unknown, kind: ActionSpec["kind"]): ActionSpec | null => {
     if (!isObj(v)) return null;
     return {
-      kind: "action",
+      kind,
       defaultPopup: typeof v.default_popup === "string" ? v.default_popup : null,
       defaultTitle: typeof v.default_title === "string" ? v.default_title : null,
       defaultIcon: iconMap(v.default_icon),
@@ -139,15 +139,14 @@ function parseAction(
       enabled: true,
     };
   };
-  const a = pick(mv === 3 ? manifest.action : manifest.browser_action);
-  if (a) return a;
-  if (isObj(manifest.browser_action)) {
-    const b = pick(manifest.browser_action);
-    if (b) return { ...b, kind: "browser_action" };
-  }
-  if (isObj(manifest.page_action)) {
-    const p = pick(manifest.page_action);
-    if (p) return { ...p, kind: "page_action" };
+  /* Field precedence per manifest version: MV3 leads with action,
+     Firefox MV2 with browser_action; page_action is the fallback. */
+  const order: ActionSpec["kind"][] =
+    mv === 3 ? ["action", "browser_action", "page_action"] : ["browser_action", "action", "page_action"];
+  for (const kind of order) {
+    const v = manifest[kind];
+    const spec = pick(v, kind);
+    if (spec) return spec;
   }
   return null;
 }

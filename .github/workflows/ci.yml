@@ -106,6 +106,9 @@ jobs:
           grep -E "error TS" tsc.out | head -9 | while IFS= read -r l; do echo "::error::TSC $l"; done
           if grep -q "error TS" tsc.out; then exit 1; fi
           npm run build
+      - name: Extension subsystem unit tests
+        run: |
+          cd app && npx vitest run --reporter=basic
       - name: Verify vendored transport made it into the build
         run: test -f app/dist/libcurl/index.mjs
       - name: Bootstrap size budget (must stay under 5 KB minified)
