@@ -27,8 +27,7 @@ jobs:
           cargo test --workspace > test.out 2>&1 || true
           grep -m1 -B6 -A14 -E "^error|FAILED|panicked at" test.out > testslice.out || true
           if [ -s testslice.out ]; then
-            D=$(head -c 900 testslice.out | sed ':a;N;$!ba;s/
-/%0A/g')
+            D=$(head -c 900 testslice.out | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::error::TEST%0A$D"
             exit 1
           fi
