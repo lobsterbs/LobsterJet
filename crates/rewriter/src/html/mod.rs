@@ -281,7 +281,13 @@ impl Rewriter {
         let mut rest = &raw[name_end..];
         let mut first_url: Option<String> = None;
         while let Some(attr) = next_attr(rest) {
-            let (consumed, lead_ws, attr_name, attr_value, quote) = attr;
+            let Attr {
+                consumed,
+                lead_ws,
+                name: attr_name,
+                value: attr_value,
+                quote,
+            } = attr;
             let lower = attr_name.to_ascii_lowercase();
             match attr_value {
                 Some(v) => {
@@ -392,11 +398,20 @@ fn eat_marker(buf: &mut String, out: &mut String, marker: &str) -> bool {
     }
 }
 
+/// One parsed attribute: the bytes it consumed, the whitespace that
+/// preceded it (preserved on emit), its name, its optional value, and
+/// the quote character when the value was quoted.
+struct Attr {
+    consumed: usize,
+    lead_ws: String,
+    name: String,
+    value: Option<String>,
+    quote: Option<char>,
+}
+
 /// Pull one attribute (name, optional =value) off the front of s.
-/// Returns (bytes consumed, leading whitespace, name, Some(value),
-/// quote char when the value was quoted); None when the remaining text
-/// is not an attribute (tag end).
-fn next_attr(s: &str) -> Option<(usize, String, String, Option<String>, Option<char>)> {
+/// Returns None when the remaining text is not an attribute (tag end).
+fn next_attr(s: &str) -> Option<Attr> {
     let trimmed = s.trim_start();
     let lead_ws = s[..s.len() - trimmed.len()].to_string();
     if trimmed.is_empty() || trimmed.starts_with('>') || trimmed.starts_with("/>") {
@@ -425,12 +440,24 @@ fn next_attr(s: &str) -> Option<(usize, String, String, Option<String>, Option<c
                 .unwrap_or(vstart.len());
             (vstart[..end].to_string(), ws + end, None)
         };
-        let total = lead_ws.len() + eq + consumed_v;
-        return Some((total, lead_ws, name, Some(val), quote));
+        let consumed = lead_ws.len() + eq + consumed_v;
+        return Some(Attr {
+            consumed,
+            lead_ws,
+            name,
+            value: Some(val),
+            quote,
+        });
     }
     // Boolean attribute (no value).
-    let total = lead_ws.len() + name_end;
-    Some((total, lead_ws, name, None, None))
+    let consumed = lead_ws.len() + name_end;
+    Some(Attr {
+        consumed,
+        lead_ws,
+        name,
+        value: None,
+        quote: None,
+    })
 }
 
 /// Re-emit an attribute, preserving the original quoting style so the
