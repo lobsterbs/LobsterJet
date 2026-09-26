@@ -9,15 +9,18 @@
    (onInstalled/onStartup) register listeners but do not fire until
    that phase lands. */
 
-import type { ExtensionRecord } from "./types";
+import type { ExtensionRecord, ExtensionId } from "./types";
 import { extensionUrl } from "./origin";
 import { TABS, tabView, changeView } from "./tabs";
 import type { TabsEvent } from "./tabs";
-import type { MenuClickListener } from "./contextmenus";
 import { SCRIPTING } from "./scripting";
+import type { ScriptingInjection } from "./scripting";
+import { WEBNAV } from "./webnavigation";
+import type { NavigationCommitted } from "./webnavigation";
 import { MENUS } from "./contextmenus";
 import { DOWNLOADS } from "./downloads";
-import { hostPatternsMatch } from "./permissions";
+import { PERMS } from "./advanced-permissions";
+import type { ApiPermissions, PermListener } from "./advanced-permissions";
 import type { ExtensionStorageArea, StorageValue } from "./storage";
 import type { ExtensionMessenger, MessageListener, ConnectListener, MessageSender } from "./messaging";
 
@@ -86,6 +89,54 @@ function makeTabsEvent(
         if (!args) return;
         try {
           l(...args);
+        } catch {
+          /* a broken listener is the extension's own problem */
+        }
+      }));
+    },
+    removeListener: (l) => {
+      offs.get(l)?.();
+      offs.delete(l);
+    },
+    hasListener: (l) => offs.has(l),
+  };
+}
+
+/* webNavigation.onCommitted gated by the webNavigation permission,
+   exactly as Firefox delivers the event. Listener url filters are
+   accepted but not applied (documented in ./compat). */
+function makeWebNavEvent(
+  ext: ExtensionRecord,
+): EventNamespace<(info: NavigationCommitted) => void> {
+  const offs = new Map<unknown, () => void>();
+  return {
+    addListener: (l: (info: NavigationCommitted) => void) => {
+      if (offs.has(l)) return;
+      offs.set(l, WEBNAV.subscribe((info) => {
+        if (!ext.permissions.includes("webNavigation")) return;
+        try {
+          l(info);
+        } catch {
+          /* a broken listener is the extension's own problem */
+        }
+      }));
+    },
+    removeListener: (l: (info: NavigationCommitted) => void) => {
+      offs.get(l)?.();
+      offs.delete(l);
+    },
+    hasListener: (l: (info: NavigationCommitted) => void) => offs.has(l),
+  };
+}
+
+function makeMenusEvent(extId: ExtensionId): EventNamespace<(info: unknown, tab: unknown) => void> {
+  const offs = new Map<unknown, () => void>();
+  return {
+    addListener: (l) => {
+      if (offs.has(l)) return;
+      offs.set(l, MENUS.onClicked(extId, (info, tab) => {
+        try {
+          l(info, tab);
         } catch {
           /* a broken listener is the extension's own problem */
         }
@@ -193,68 +244,50 @@ export function buildApi(
     getAll: (opts?: { populate?: boolean }) => Promise.resolve([win(!!opts?.populate)]),
     onFocusChanged: makeEvent<(windowId: number) => void>(),
   };
-  /* webNavigation: derived from top-level tab URL changes; frameId is
-     always 0 (no subframe signal) and onCompleted fires together with
-     onCommitted (no per-load completion signal). Firefox permission
-     semantics: webNavigation permission or matching host permission. */
-  function navEvent(): EventNamespace<(details: Record<string, unknown>) => void> {
-    const offs = new Map<unknown, () => void>();
-    return {
-      addListener: (l) => {
-        if (offs.has(l)) return;
-        offs.set(l, TABS.subscribe((ev) => {
-          if (ev.type !== "updated" || ev.change.url === undefined) return;
-          if (!ext.permissions.includes("webNavigation") &&
-              !hostPatternsMatch(ext.hostPermissions, ev.change.url)) return;
-          try {
-            l({ tabId: ev.tabId, frameId: 0, url: ev.change.url, transitionType: "link", timeStamp: Date.now() });
-          } catch {
-            /* a broken listener is the extension's own problem */
-          }
-        }));
-      },
-      removeListener: (l) => {
-        offs.get(l)?.();
-        offs.delete(l);
-      },
-      hasListener: (l) => offs.has(l),
-    };
-  }
-  const browser: Record<string, unknown> = { runtime, storage: storageNs, tabs: tabsNs, windows: windowsNs };
-  /* Privileged namespaces appear only with their permission, so
-     feature detection stays honest. */
-  if (ext.permissions.includes("scripting")) {
-    browser.scripting = {
-      executeScript: (i: { target: { tabId: number }; files: string[] }) =>
-        SCRIPTING.executeScript(ext, i.target.tabId, i.files),
-      insertCSS: (i: { target: { tabId: number }; files: string[] }) =>
-        SCRIPTING.insertCSS(ext, i.target.tabId, i.files),
-    };
-  }
-  if (ext.permissions.includes("webNavigation")) {
-    const nav = navEvent();
-    browser.webNavigation = { onCommitted: nav, onCompleted: nav };
-  }
-  if (ext.permissions.includes("contextMenus") || ext.permissions.includes("menus")) {
-    const menusNs = {
-      create: (props: Record<string, unknown> | string, ...rest: unknown[]) =>
-        typeof props === "string"
-          ? MENUS.create(ext, { id: props, title: rest[0] as string | undefined })
-          : MENUS.create(ext, props as Record<string, never>),
-      update: (id: string, props: Record<string, unknown>) => MENUS.update(ext, id, props),
-      remove: (id: string) => MENUS.remove(ext, id),
-      removeAll: () => MENUS.removeAll(ext),
-      onClicked: bridged<MenuClickListener>((l) => MENUS.onClicked(ext.id, l)),
-    };
-    browser.contextMenus = menusNs;
-    browser.menus = menusNs;
-  }
-  if (ext.permissions.includes("downloads")) {
-    browser.downloads = {
-      download: (o: { url: string; filename?: string }) => DOWNLOADS.download(ext, o),
-      search: (q: Record<string, unknown> = {}) => Promise.resolve(DOWNLOADS.search(q)),
-    };
-  }
+  /* scripting: files are read from the package here and pushed to
+     the target page; the page listener executes them with the
+     content-script API surface. Permissions enforced inside. */
+  const scriptingNs = {
+    executeScript: (inj: ScriptingInjection) => SCRIPTING.executeScript(ext, inj),
+    insertCSS: (inj: ScriptingInjection) => SCRIPTING.insertCSS(ext, inj),
+  };
+  /* webNavigation: events derived from the proxy fetch path. */
+  const webNavigationNs = { onCommitted: makeWebNavEvent(ext) };
+  /* contextMenus + Firefox's menus alias over one registry. */
+  const contextMenusNs = {
+    create: (props: Record<string, unknown> = {}) => MENUS.create(ext, props),
+    update: () => undefined,
+    remove: (id: string | number) => MENUS.remove(ext.id, String(id)),
+    removeAll: () => MENUS.removeAll(ext.id),
+    onClicked: makeMenusEvent(ext.id),
+  };
+  const downloadsNs = {
+    download: (opts: Record<string, unknown>) =>
+      DOWNLOADS.download(ext, opts as unknown as { url: string; filename?: string; saveAs?: boolean }),
+  };
+  /* permissions: advanced permission lifecycle. The engine has
+     no user prompt, so request() auto-grants anything the manifest
+     declared optional; anything else is refused. */
+  const permissionsNs = {
+    contains: (perms: ApiPermissions = {}) => Promise.resolve(PERMS.contains(ext, perms)),
+    getAll: () => Promise.resolve(PERMS.getAll(ext)),
+    request: (perms: ApiPermissions = {}) => PERMS.request(ext, perms),
+    remove: (perms: ApiPermissions = {}) => PERMS.remove(ext, perms),
+    onAdded: bridged<PermListener>((l) => PERMS.subscribeAdded(l)),
+    onRemoved: bridged<PermListener>((l) => PERMS.subscribeRemoved(l)),
+  };
+  const browser: Record<string, unknown> = {
+    runtime,
+    storage: storageNs,
+    tabs: tabsNs,
+    windows: windowsNs,
+    scripting: scriptingNs,
+    webNavigation: webNavigationNs,
+    contextMenus: contextMenusNs,
+    menus: contextMenusNs,
+    downloads: downloadsNs,
+    permissions: permissionsNs,
+  };
   /* Firefox-style chrome.* alias over the same implementations. */
   return { browser, chrome: browser };
 }
