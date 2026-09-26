@@ -101,20 +101,8 @@ describe("browser.permissions", () => {
 
   it("getAll reflects the manifest grant set", async () => {
     wireBackend();
-    await install("PermGetAll");
-    const perms = makeApi(await (async () => {
-      await extensions.startup();
-      return extensions.get((await (async () => {
-        const manifest = {
-          manifest_version: 2,
-          name: "PermGetAll",
-          version: "1.0",
-          permissions: ["storage"],
-          optional_permissions: ["tabs", "downloads", "https://example.com/*"],
-        };
-        return extensions.installFiles(new Map([["manifest.json", enc.encode(JSON.stringify(manifest))]]));
-      })()).id)!;
-    })()).browser.permissions as unknown as PermsNs;
+    const rec = await install("PermGetAll");
+    const perms = makeApi(rec).browser.permissions as unknown as PermsNs;
     const all = await perms.getAll();
     expect(all.permissions).toContain("storage");
     expect(all.permissions).not.toContain("tabs");
