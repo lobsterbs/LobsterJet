@@ -16,6 +16,7 @@
 import { extensions } from "./manager";
 import { normalizeExtensionPath } from "./origin";
 import { BRIDGE_SOURCE } from "./bridge";
+import { LISTENER_SOURCE } from "./scripting";
 import type { ExtensionRecord } from "./types";
 
 export const EXT_ROUTE = "/zl-ext/";
@@ -24,11 +25,13 @@ export const CS_ROUTE = "/zl-cs/";
 export type ServeReq =
   | { kind: "war"; id: string; path: string }
   | { kind: "bridge"; id: string }
-  | { kind: "cs"; id: string; path: string };
+  | { kind: "cs"; id: string; path: string }
+  | { kind: "listener"; id: string };
 
 const EXT_ID_RE = /^[a-f0-9]{32}$/;
 
 export function parseServePath(pathname: string): ServeReq | null {
+  if (pathname === CS_ROUTE + "__scripting.js") return { kind: "listener", id: "" };
   if (pathname.startsWith(EXT_ROUTE)) {
     const rest = pathname.slice(EXT_ROUTE.length);
     const slash = rest.indexOf("/");
@@ -123,6 +126,15 @@ export async function serveExtensionAsset(req: Request, url: URL): Promise<Respo
   }
   const sr = parseServePath(url.pathname);
   if (!sr) return notFound();
+  if (sr.kind === "listener") {
+    /* Engine-global scripting listener; not tied to one extension. */
+    return new Response(LISTENER_SOURCE, {
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    });
+  }
   const rec = extensions.get(sr.id);
   if (!rec || !rec.enabled) return notFound();
 

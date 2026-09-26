@@ -9,12 +9,16 @@
    (onInstalled/onStartup) register listeners but do not fire until
    that phase lands. */
 
-import type { ExtensionRecord } from "./types";
+import type { ExtensionRecord, ExtensionId } from "./types";
 import { extensionUrl } from "./origin";
 import { TABS, tabView, changeView } from "./tabs";
 import type { TabsEvent } from "./tabs";
+import { SCRIPTING } from "./scripting";
+import type { ScriptingInjection } from "./scripting";
 import { WEBNAV } from "./webnavigation";
-import type { NavigationCommitted } from "./webnavigation";
+import type { NavDetails, NavKind } from "./webnavigation";
+import { MENUS } from "./contextmenus";
+import { DOWNLOADS } from "./downloads";
 import type { ExtensionStorageArea, StorageValue } from "./storage";
 import type { ExtensionMessenger, MessageListener, ConnectListener, MessageSender } from "./messaging";
 
@@ -96,30 +100,39 @@ function makeTabsEvent(
   };
 }
 
-/* webNavigation.onCommitted gated by the webNavigation permission,
-   exactly as Firefox delivers the event. Listener url filters are
-   accepted but not applied (documented in ./compat). */
-function makeWebNavEvent(
-  ext: ExtensionRecord,
-): EventNamespace<(info: NavigationCommitted) => void> {
+function makeNavEvent(kind: NavKind): EventNamespace<(details: NavDetails) => void> {
   const offs = new Map<unknown, () => void>();
   return {
-    addListener: (l: (info: NavigationCommitted) => void) => {
+    addListener: (l) => {
       if (offs.has(l)) return;
-      offs.set(l, WEBNAV.subscribe((info) => {
-        if (!ext.permissions.includes("webNavigation")) return;
+      offs.set(l, WEBNAV.subscribe(kind, l));
+    },
+    removeListener: (l) => {
+      offs.get(l)?.();
+      offs.delete(l);
+    },
+    hasListener: (l) => offs.has(l),
+  };
+}
+
+function makeMenusEvent(extId: ExtensionId): EventNamespace<(info: unknown, tab: unknown) => void> {
+  const offs = new Map<unknown, () => void>();
+  return {
+    addListener: (l) => {
+      if (offs.has(l)) return;
+      offs.set(l, MENUS.onClicked(extId, (info, tab) => {
         try {
-          l(info);
+          l(info, tab);
         } catch {
           /* a broken listener is the extension's own problem */
         }
       }));
     },
-    removeListener: (l: (info: NavigationCommitted) => void) => {
+    removeListener: (l) => {
       offs.get(l)?.();
       offs.delete(l);
     },
-    hasListener: (l: (info: NavigationCommitted) => void) => offs.has(l),
+    hasListener: (l) => offs.has(l),
   };
 }
 
@@ -217,8 +230,42 @@ export function buildApi(
     getAll: (opts?: { populate?: boolean }) => Promise.resolve([win(!!opts?.populate)]),
     onFocusChanged: makeEvent<(windowId: number) => void>(),
   };
-  const webNavNs = { onCommitted: makeWebNavEvent(ext) };
-  const browser: Record<string, unknown> = { runtime, storage: storageNs, tabs: tabsNs, windows: windowsNs, webNavigation: webNavNs };
+  /* scripting: files are read from the package here and pushed to
+     the target page; the page listener executes them with the
+     content-script API surface. Permissions enforced inside. */
+  const scriptingNs = {
+    executeScript: (inj: ScriptingInjection) => SCRIPTING.executeScript(ext, inj),
+    insertCSS: (inj: ScriptingInjection) => SCRIPTING.insertCSS(ext, inj),
+  };
+  /* webNavigation: events derived from the proxy fetch path. */
+  const webNavigationNs = {
+    onCommitted: makeNavEvent("committed"),
+    onCompleted: makeNavEvent("completed"),
+    onErrorOccurred: makeNavEvent("error"),
+  };
+  /* contextMenus + Firefox's menus alias over one registry. */
+  const contextMenusNs = {
+    create: (props: Record<string, unknown> = {}) => MENUS.create(ext, props),
+    update: () => undefined,
+    remove: (id: string | number) => MENUS.remove(ext.id, String(id)),
+    removeAll: () => MENUS.removeAll(ext.id),
+    onClicked: makeMenusEvent(ext.id),
+  };
+  const downloadsNs = {
+    download: (opts: Record<string, unknown>) =>
+      DOWNLOADS.download(ext, opts as { url?: string; filename?: string; saveAs?: boolean }),
+  };
+  const browser: Record<string, unknown> = {
+    runtime,
+    storage: storageNs,
+    tabs: tabsNs,
+    windows: windowsNs,
+    scripting: scriptingNs,
+    webNavigation: webNavigationNs,
+    contextMenus: contextMenusNs,
+    menus: contextMenusNs,
+    downloads: downloadsNs,
+  };
   /* Firefox-style chrome.* alias over the same implementations. */
   return { browser, chrome: browser };
 }

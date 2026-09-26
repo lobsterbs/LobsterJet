@@ -29,5 +29,11 @@ export {
 } from "./serve";
 export { TABS, TabRegistry, tabView, changeView } from "./tabs";
 export type { UiTab, TabsEvent, TabsOp, TabsListener, TabChangeInfo } from "./tabs";
-export { WEBNAV, NavigationRegistry } from "./webnavigation";
-export type { NavigationCommitted, NavigationListener } from "./webnavigation";
+export { SCRIPTING, ScriptingHost, LISTENER_SOURCE } from "./scripting";
+export type { ScriptingInjection, ScriptingMessage } from "./scripting";
+export { WEBNAV, WebNav } from "./webnavigation";
+export type { NavDetails, NavKind, NavListener } from "./webnavigation";
+export { MENUS, ContextMenusHost } from "./contextmenus";
+export type { MenuItem, MenuClickInfo, MenuClickedListener } from "./contextmenus";
+export { DOWNLOADS, DownloadsHost } from "./downloads";
+export type { DownloadOptions, DownloadOp } from "./downloads";
