@@ -242,9 +242,9 @@ impl Default for Config {
     }
 }
 
-fn env_num<T: std::str::FromStr>(name: &str, default: T, min: T) -> T
+fn env_num<T>(name: &str, default: T, min: T) -> T
 where
-    T: PartialOrd + Copy,
+    T: std::str::FromStr + PartialOrd + Copy,
 {
     let v = std::env::var(name).ok().and_then(|s| s.parse().ok());
     match v {
@@ -414,6 +414,7 @@ pub async fn wisp_handler(
 }
 
 /// Post-handshake authentication verdict.
+#[derive(Debug)]
 enum AuthState {
     NotRequired,
     Ok,
@@ -467,7 +468,7 @@ fn key_from_hex(hex: &str) -> Option<ed25519_dalek::VerifyingKey> {
 }
 
 fn hex_decode(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return None;
     }
     (0..hex.len())
@@ -1079,6 +1080,7 @@ pub async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::Digest;
 
     #[test]
     fn sensitive_paths_refused() {
@@ -1186,20 +1188,20 @@ mod tests {
         assert!(auth_required_for(&cfg));
         let sh = Shared::new(cfg);
         // No password extension declared: required.
-        match check_auth(&sh, &[]) {
+        match check_auth(&sh, None, &[]) {
             AuthState::Reject(CloseReason::AuthRequired) => {}
             other => panic!("expected AuthRequired, got {other:?}"),
         }
         // Wrong credentials: bad credentials.
         let bad = wisp_core::extension::password_auth_client("ada", "wrong").unwrap();
-        match check_auth(&sh, &[(ExtensionId::PasswordAuth, bad)]) {
+        match check_auth(&sh, None, &[(ExtensionId::PasswordAuth, bad)]) {
             AuthState::Reject(CloseReason::AuthBadCredentials) => {}
             other => panic!("expected AuthBadCredentials, got {other:?}"),
         }
         // Right credentials: ok.
         let good = wisp_core::extension::password_auth_client("ada", "hunter2").unwrap();
         assert!(matches!(
-            check_auth(&sh, &[(ExtensionId::PasswordAuth, good)]),
+            check_auth(&sh, None, &[(ExtensionId::PasswordAuth, good)]),
             AuthState::Ok
         ));
     }
