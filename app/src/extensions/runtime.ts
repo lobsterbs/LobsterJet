@@ -261,7 +261,7 @@ export function buildApi(
   };
   const downloadsNs = {
     download: (opts: Record<string, unknown>) =>
-      DOWNLOADS.download(ext, opts as { url?: string; filename?: string; saveAs?: boolean }),
+      DOWNLOADS.download(ext, opts as unknown as { url: string; filename?: string; saveAs?: boolean }),
   };
   const browser: Record<string, unknown> = {
     runtime,

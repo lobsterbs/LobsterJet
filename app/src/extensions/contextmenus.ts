@@ -28,7 +28,7 @@ const MAX_ITEMS = 64;
 
 export class ContextMenusHost {
   private readonly items = new Map<ExtensionId, MenuItem[]>();
-  private readonly onClicked = new Map<ExtensionId, Set<MenuClickedListener>>();
+  private readonly clickListeners = new Map<ExtensionId, Set<MenuClickedListener>>();
   private seq = 0;
 
   create(ext: ExtensionRecord, props: Record<string, unknown>): string | number {
@@ -63,17 +63,17 @@ export class ContextMenusHost {
   }
 
   onClicked(extId: ExtensionId, l: MenuClickedListener): () => void {
-    let set = this.onClicked.get(extId);
+    let set = this.clickListeners.get(extId);
     if (!set) {
       set = new Set();
-      this.onClicked.set(extId, set);
+      this.clickListeners.set(extId, set);
     }
     set.add(l);
     return () => set?.delete(l);
   }
 
   click(extId: ExtensionId, info: MenuClickInfo, tab: unknown): void {
-    const set = this.onClicked.get(extId);
+    const set = this.clickListeners.get(extId);
     if (!set) return;
     for (const l of [...set]) {
       try {
