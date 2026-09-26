@@ -19,6 +19,8 @@ import { WEBNAV } from "./webnavigation";
 import type { NavigationCommitted } from "./webnavigation";
 import { MENUS } from "./contextmenus";
 import { DOWNLOADS } from "./downloads";
+import { PERMS } from "./advanced-permissions";
+import type { ApiPermissions, PermListener } from "./advanced-permissions";
 import type { ExtensionStorageArea, StorageValue } from "./storage";
 import type { ExtensionMessenger, MessageListener, ConnectListener, MessageSender } from "./messaging";
 
@@ -263,6 +265,17 @@ export function buildApi(
     download: (opts: Record<string, unknown>) =>
       DOWNLOADS.download(ext, opts as unknown as { url: string; filename?: string; saveAs?: boolean }),
   };
+  /* permissions: advanced permission lifecycle. The engine has
+     no user prompt, so request() auto-grants anything the manifest
+     declared optional; anything else is refused. */
+  const permissionsNs = {
+    contains: (perms: ApiPermissions = {}) => Promise.resolve(PERMS.contains(ext, perms)),
+    getAll: () => Promise.resolve(PERMS.getAll(ext)),
+    request: (perms: ApiPermissions = {}) => PERMS.request(ext, perms),
+    remove: (perms: ApiPermissions = {}) => PERMS.remove(ext, perms),
+    onAdded: bridged<PermListener>((l) => PERMS.subscribeAdded(l)),
+    onRemoved: bridged<PermListener>((l) => PERMS.subscribeRemoved(l)),
+  };
   const browser: Record<string, unknown> = {
     runtime,
     storage: storageNs,
@@ -273,6 +286,7 @@ export function buildApi(
     contextMenus: contextMenusNs,
     menus: contextMenusNs,
     downloads: downloadsNs,
+    permissions: permissionsNs,
   };
   /* Firefox-style chrome.* alias over the same implementations. */
   return { browser, chrome: browser };

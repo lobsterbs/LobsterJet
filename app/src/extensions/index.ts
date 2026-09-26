@@ -37,3 +37,5 @@ export { MENUS, ContextMenusHost } from "./contextmenus";
 export type { MenuItem, MenuClickInfo, MenuClickedListener } from "./contextmenus";
 export { DOWNLOADS, DownloadsHost } from "./downloads";
 export type { DownloadOptions, DownloadOp } from "./downloads";
+export { PERMS, PermissionRegistry } from "./advanced-permissions";
+export type { ApiPermissions, PermListener, PermBackend } from "./advanced-permissions";

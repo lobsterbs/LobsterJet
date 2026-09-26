@@ -215,6 +215,52 @@ export class ExtensionManager {
       .catch(() => undefined);
   }
 
+  /* Advanced permissions: grant/revoke of manifest optional
+     permissions. Firefox asks the user; the engine has no prompt UI,
+     so request() auto-grants anything the manifest declared optional
+     (documented in ./compat). Anything NOT declared optional is
+     refused - permissions can never be self-escalated. */
+  async grantOptional(
+    id: ExtensionId,
+    perms: { permissions?: string[]; origins?: string[] },
+  ): Promise<ExtensionRecord | null> {
+    const rec = this.exts.get(id);
+    if (!rec) return null;
+    const named = perms.permissions ?? [];
+    const origins = perms.origins ?? [];
+    for (const p of [...named, ...origins]) {
+      if (!rec.optionalPermissions.includes(p)) return null;
+    }
+    for (const p of named) {
+      if (!rec.permissions.includes(p)) rec.permissions.push(p);
+    }
+    for (const p of origins) {
+      if (!rec.hostPermissions.includes(p)) rec.hostPermissions.push(p);
+    }
+    void openDb()
+      .then((db) => idbPut(db, STORE_META, id, rec))
+      .catch(() => undefined);
+    this.changed(id);
+    return { ...rec };
+  }
+
+  async revokeOptional(
+    id: ExtensionId,
+    perms: { permissions?: string[]; origins?: string[] },
+  ): Promise<ExtensionRecord | null> {
+    const rec = this.exts.get(id);
+    if (!rec) return null;
+    const named = perms.permissions ?? [];
+    const origins = perms.origins ?? [];
+    rec.permissions = rec.permissions.filter((p) => !named.includes(p));
+    rec.hostPermissions = rec.hostPermissions.filter((p) => !origins.includes(p));
+    void openDb()
+      .then((db) => idbPut(db, STORE_META, id, rec))
+      .catch(() => undefined);
+    this.changed(id);
+    return { ...rec };
+  }
+
   /* Shallow clones: callers cannot mutate manager state. */
   list(): ExtensionRecord[] {
     return Array.from(this.exts.values()).map((r) => ({ ...r }));

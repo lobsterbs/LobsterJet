@@ -36,6 +36,7 @@ import {
   WEBNAV,
   MENUS,
   DOWNLOADS,
+  PERMS,
   bootEnabled,
   tabView,
   contentScriptMatches,
@@ -332,6 +333,15 @@ self.addEventListener("activate", (e) => {
         void self.clients.matchAll({ type: "window" }).then((cs) => {
           for (const c of cs) c.postMessage({ type: "zl:downloadOp", op });
         });
+      });
+      /* Advanced permissions: request/remove run through the manager
+         so grants persist and the master record stays authoritative. */
+      PERMS.setBackend(async (id, op, perms) => {
+        const rec =
+          op === "grant"
+            ? await extensions.grantOptional(id, perms)
+            : await extensions.revokeOptional(id, perms);
+        return rec ? { permissions: [...rec.permissions], origins: [...rec.hostPermissions] } : null;
       });
     })(),
   );
