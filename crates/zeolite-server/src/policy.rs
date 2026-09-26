@@ -46,7 +46,11 @@ impl DestinationPolicy {
         let h = hostname.trim_end_matches('.').to_ascii_lowercase();
         let local = matches!(
             h.as_str(),
-            "localhost" | "ip6-localhost" | "ip6-loopback" | "metadata" | "metadata.google.internal"
+            "localhost"
+                | "ip6-localhost"
+                | "ip6-loopback"
+                | "metadata"
+                | "metadata.google.internal"
         );
         if local || h.ends_with(".local") || h.ends_with(".internal") || h.ends_with(".home.arpa") {
             return Verdict::Block;
@@ -117,7 +121,10 @@ mod tests {
             assert_eq!(p.check_ip(&ip), Verdict::Block, "should block {s}");
         }
         assert_eq!(p.check_ip(&"1.1.1.1".parse().unwrap()), Verdict::Allow);
-        assert_eq!(p.check_ip(&"2606:4700::1111".parse().unwrap()), Verdict::Allow);
+        assert_eq!(
+            p.check_ip(&"2606:4700::1111".parse().unwrap()),
+            Verdict::Allow
+        );
     }
 
     #[test]

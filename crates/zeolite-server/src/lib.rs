@@ -17,6 +17,7 @@
 
 pub mod policy;
 
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -25,7 +26,6 @@ use axum::{
     routing::get,
     Router,
 };
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -274,12 +274,16 @@ impl Config {
             motd: std::env::var("ZL_MOTD").ok().filter(|s| !s.is_empty()),
             password: match (
                 std::env::var("ZL_WISP_USER").ok().filter(|s| !s.is_empty()),
-                std::env::var("ZL_WISP_PASSWORD").ok().filter(|s| !s.is_empty()),
+                std::env::var("ZL_WISP_PASSWORD")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
             ) {
                 (Some(u), Some(p)) => Some((u, p)),
                 _ => None,
             },
-            key_hex: std::env::var("ZL_WISP_ED25519_HEX").ok().filter(|s| s.len() == 64),
+            key_hex: std::env::var("ZL_WISP_ED25519_HEX")
+                .ok()
+                .filter(|s| s.len() == 64),
             auth_required_v1: std::env::var("ZL_AUTH_REQUIRED_V1")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
@@ -380,7 +384,10 @@ pub fn build_app(shared: Arc<Shared>) -> Router {
 
 async fn wisp_handler(State(sh): State<Arc<Shared>>, ws: WebSocketUpgrade) -> Response {
     // v2 clients send the wisp subprotocol header; absence means v1.
-    let v2 = ws.protocols().iter().any(|p| p.eq_ignore_ascii_case("wisp"));
+    let v2 = ws
+        .protocols()
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case("wisp"));
     // Soft limit check here; the exact count is taken when the upgrade
     // actually starts, so failed upgrades never leak a slot.
     if sh.active.load(Ordering::SeqCst) >= sh.cfg.max_connections {
@@ -625,8 +632,11 @@ async fn wisp_session(socket: WebSocket, v2: bool, shared: Arc<Shared>) {
             Ok(p) => p,
             Err(e) => {
                 if !handshake_done {
-                    let _ = send_packet(&ws_tx, &wisp_core::handshake_reject(CloseReason::InvalidInfo))
-                        .await;
+                    let _ = send_packet(
+                        &ws_tx,
+                        &wisp_core::handshake_reject(CloseReason::InvalidInfo),
+                    )
+                    .await;
                 }
                 tracing::warn!(%e, "protocol failure: malformed packet");
                 break;
@@ -652,10 +662,11 @@ async fn wisp_session(socket: WebSocket, v2: bool, shared: Arc<Shared>) {
                     // an auth extension is configured: no stream creation
                     // for unauthenticated clients.
                     if !auth_verified && shared.auth_required() {
-                        match check_auth(&shared, keyauth.as_ref(), &handshake.common_extensions()) {
+                        match check_auth(&shared, keyauth.as_ref(), &handshake.common_extensions())
+                        {
                             AuthState::Reject(reason) => {
-                                let _ = send_packet(&ws_tx, &wisp_core::handshake_reject(reason))
-                                    .await;
+                                let _ =
+                                    send_packet(&ws_tx, &wisp_core::handshake_reject(reason)).await;
                                 tracing::warn!(?reason, "handshake rejected: auth");
                                 return;
                             }
@@ -706,14 +717,7 @@ async fn wisp_session(socket: WebSocket, v2: bool, shared: Arc<Shared>) {
                     continue;
                 }
                 if let AuthState::Reject(reason) = auth_ok(&shared, v2, auth_verified) {
-                    let _ = send_packet(
-                        &ws_tx,
-                        &Packet::Close {
-                            stream_id,
-                            reason,
-                        },
-                    )
-                    .await;
+                    let _ = send_packet(&ws_tx, &Packet::Close { stream_id, reason }).await;
                     continue;
                 }
                 if sess.streams.len() >= shared.cfg.max_streams_per_conn {
@@ -729,12 +733,8 @@ async fn wisp_session(socket: WebSocket, v2: bool, shared: Arc<Shared>) {
                     continue;
                 }
                 match kind {
-                    StreamKind::Tcp => {
-                        spawn_tcp_relay(&mut sess, stream_id, port, hostname).await
-                    }
-                    StreamKind::Udp => {
-                        spawn_udp_relay(&mut sess, stream_id, port, hostname).await
-                    }
+                    StreamKind::Tcp => spawn_tcp_relay(&mut sess, stream_id, port, hostname).await,
+                    StreamKind::Udp => spawn_udp_relay(&mut sess, stream_id, port, hostname).await,
                 }
             }
             Packet::Data { stream_id, payload } => {
@@ -751,7 +751,10 @@ async fn wisp_session(socket: WebSocket, v2: bool, shared: Arc<Shared>) {
                 // DATA for an unknown/closed stream is ignored: the
                 // relay may have closed a moment ago.
             }
-            Packet::Continue { stream_id, buffer_remaining } => {
+            Packet::Continue {
+                stream_id,
+                buffer_remaining,
+            } => {
                 if stream_id == 0 {
                     continue; // handshake window update: nothing to do
                 }
@@ -930,7 +933,11 @@ async fn spawn_udp_relay(sess: &mut Session, stream_id: u32, port: u16, hostname
                 return;
             }
         };
-        let bind = if addr.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+        let bind = if addr.is_ipv4() {
+            "0.0.0.0:0"
+        } else {
+            "[::]:0"
+        };
         let sock = match UdpSocket::bind(bind).await {
             Ok(s) => s,
             Err(e) => {
@@ -1030,10 +1037,7 @@ async fn spawn_udp_relay(sess: &mut Session, stream_id: u32, port: u16, hostname
     // not apply to UDP).
 }
 
-pub async fn send_packet(
-    tx: &WsTx,
-    pkt: &Packet,
-) -> Result<(), mpsc::error::SendError<Message>> {
+pub async fn send_packet(tx: &WsTx, pkt: &Packet) -> Result<(), mpsc::error::SendError<Message>> {
     let frame = encode_packet(pkt);
     let mut out = BytesMut::with_capacity(5 + frame.payload.len());
     frame.encode_into(&mut out);
@@ -1143,8 +1147,14 @@ mod tests {
     fn connect_failure_reasons() {
         assert_eq!(ConnectFailure::Blocked.reason(), CloseReason::Blocked);
         assert_eq!(ConnectFailure::Dns.reason(), CloseReason::UnreachableHost);
-        assert_eq!(ConnectFailure::Timeout.reason(), CloseReason::ConnectTimedOut);
-        assert_eq!(ConnectFailure::Refused.reason(), CloseReason::ConnectionRefused);
+        assert_eq!(
+            ConnectFailure::Timeout.reason(),
+            CloseReason::ConnectTimedOut
+        );
+        assert_eq!(
+            ConnectFailure::Refused.reason(),
+            CloseReason::ConnectionRefused
+        );
         assert_eq!(ConnectFailure::Network.reason(), CloseReason::NetworkError);
     }
 
@@ -1266,7 +1276,10 @@ mod tests {
         let mut buf = BytesMut::from(&bin[..]);
         let frame = Frame::decode(&mut buf).unwrap().unwrap();
         match frame.parse_packet().unwrap() {
-            Packet::Data { stream_id: sid, payload } => {
+            Packet::Data {
+                stream_id: sid,
+                payload,
+            } => {
                 assert_eq!(sid, 7);
                 assert_eq!(payload, b"hello");
             }
