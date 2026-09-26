@@ -1,83 +1,124 @@
-/* Zeolite extension subsystem: contextMenus (and the menus alias).
+/* Zeolite extension subsystem: contextMenus / menus.
 
-   The registry is real: extensions register items, and clicks
-   arrive from the UI host through the zl:menuClick control message,
-   which resolves the page's tab through the tabs bridge before
-   delivery. The visible menu surface ships with the LobsterBrowse
-   integration; until then items register but no menu renders, and
-   the compat matrix says exactly that. */
+   Registration registry. The engine UI surfaces the registered
+   items in its context menu and reports clicks back through the
+   zl:menuClick control message; the registry routes the click to
+   the owning extension's onClicked listeners with the same
+   permission-gated Tab view the tabs API produces. */
 
+import { extensions } from "./manager";
+import { TABS, tabView } from "./tabs";
 import type { ExtensionId, ExtensionRecord } from "./types";
 
+export interface MenuProps {
+  id?: string;
+  title?: string;
+  contexts?: string[];
+  parentId?: string;
+  type?: string;
+  enabled?: boolean;
+}
+
 export interface MenuItem {
-  extId: ExtensionId;
   id: string;
+  extId: ExtensionId;
   title: string;
   contexts: string[];
+  parentId: string | null;
+  type: string;
   enabled: boolean;
 }
 
-export interface MenuClickInfo {
-  menuItemId: string;
-  pageUrl: string;
-}
+export type MenuClickListener = (info: Record<string, unknown>, tab: Record<string, unknown> | undefined) => void;
 
-export type MenuClickedListener = (info: MenuClickInfo, tab: unknown) => void;
-
-const MAX_ITEMS = 64;
-
-export class ContextMenusHost {
-  private readonly items = new Map<ExtensionId, MenuItem[]>();
-  private readonly clickListeners = new Map<ExtensionId, Set<MenuClickedListener>>();
+export class ContextMenusRegistry {
+  private readonly items = new Map<ExtensionId, Map<string, MenuItem>>();
+  private readonly listeners = new Map<ExtensionId, Set<MenuClickListener>>();
   private seq = 0;
 
-  create(ext: ExtensionRecord, props: Record<string, unknown>): string | number {
+  create(ext: ExtensionRecord, props: MenuProps): string {
     if (!ext.permissions.includes("contextMenus") && !ext.permissions.includes("menus")) {
-      throw new Error("zeolite: permission 'contextMenus' not granted to this extension");
+      throw new Error("zeolite: contextMenus permission not granted to this extension");
     }
-    const title = String(props.title ?? "");
-    const contexts = Array.isArray(props.contexts) ? props.contexts.map(String) : ["page"];
-    const id = typeof props.id === "string" ? props.id : ++this.seq;
-    let list = this.items.get(ext.id);
-    if (!list) {
-      list = [];
-      this.items.set(ext.id, list);
+    let map = this.items.get(ext.id);
+    if (!map) {
+      map = new Map();
+      this.items.set(ext.id, map);
     }
-    if (list.length >= MAX_ITEMS) throw new Error("zeolite: too many menu items");
-    list.push({ extId: ext.id, id: String(id), title, contexts, enabled: true });
+    const id = props.id ?? "zl-menu-" + ++this.seq;
+    if (map.has(id)) throw new Error("zeolite: contextMenus.create: duplicate id: " + id);
+    if (props.parentId !== undefined && !map.has(props.parentId)) {
+      throw new Error("zeolite: contextMenus.create: no such parent: " + props.parentId);
+    }
+    map.set(id, {
+      id,
+      extId: ext.id,
+      title: props.title ?? "",
+      contexts: props.contexts ?? ["page"],
+      parentId: props.parentId ?? null,
+      type: props.type ?? "normal",
+      enabled: props.enabled ?? true,
+    });
     return id;
   }
 
-  remove(extId: ExtensionId, id: string): void {
-    const list = this.items.get(extId);
-    if (!list) return;
-    this.items.set(extId, list.filter((x) => x.id !== id));
+  update(ext: ExtensionRecord, id: string, props: Partial<MenuProps>): void {
+    const it = this.items.get(ext.id)?.get(id);
+    if (!it) throw new Error("zeolite: contextMenus.update: no such item: " + id);
+    if (props.title !== undefined) it.title = props.title;
+    if (props.contexts !== undefined) it.contexts = props.contexts;
+    if (props.enabled !== undefined) it.enabled = props.enabled;
   }
 
-  removeAll(extId: ExtensionId): void {
-    this.items.delete(extId);
+  remove(ext: ExtensionRecord, id: string): void {
+    const map = this.items.get(ext.id);
+    if (!map?.delete(id)) throw new Error("zeolite: contextMenus.remove: no such item: " + id);
   }
 
-  itemsFor(extId: ExtensionId): MenuItem[] {
-    return [...(this.items.get(extId) ?? [])];
+  removeAll(ext: ExtensionRecord): void {
+    this.items.delete(ext.id);
   }
 
-  onClicked(extId: ExtensionId, l: MenuClickedListener): () => void {
-    let set = this.clickListeners.get(extId);
+  onClicked(id: ExtensionId, l: MenuClickListener): () => void {
+    let set = this.listeners.get(id);
     if (!set) {
       set = new Set();
-      this.clickListeners.set(extId, set);
+      this.listeners.set(id, set);
     }
     set.add(l);
     return () => set?.delete(l);
   }
 
-  click(extId: ExtensionId, info: MenuClickInfo, tab: unknown): void {
-    const set = this.clickListeners.get(extId);
-    if (!set) return;
+  /** All registered items across extensions, for the engine UI. */
+  list(): MenuItem[] {
+    const out: MenuItem[] = [];
+    for (const map of this.items.values()) for (const it of map.values()) out.push({ ...it });
+    return out;
+  }
+
+  listFor(extId: ExtensionId): MenuItem[] {
+    const out: MenuItem[] = [];
+    for (const it of this.items.get(extId)?.values() ?? []) out.push({ ...it });
+    return out;
+  }
+
+  /** A click reported by the engine UI. */
+  click(extId: ExtensionId, id: string, tabId: number | null): void {
+    const it = this.items.get(extId)?.get(id);
+    if (!it || !it.enabled) return;
+    const set = this.listeners.get(extId);
+    if (!set || set.size === 0) return;
+    const rec = extensions.get(extId);
+    const tab = tabId !== null ? TABS.get(tabId) : null;
+    const tview = rec && tab ? tabView(rec, tab) : undefined;
+    const info: Record<string, unknown> = {
+      menuItemId: id,
+      parentMenuItemId: it.parentId,
+      contexts: it.contexts,
+    };
     for (const l of [...set]) {
       try {
-        l(info, tab);
+        l(info, tview);
       } catch {
         /* a broken listener is the extension's own problem */
       }
@@ -85,4 +126,4 @@ export class ContextMenusHost {
   }
 }
 
-export const MENUS = new ContextMenusHost();
+export const MENUS = new ContextMenusRegistry();

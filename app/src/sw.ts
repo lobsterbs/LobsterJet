@@ -33,12 +33,9 @@ import {
   MESSENGER,
   TABS,
   SCRIPTING,
-  WEBNAV,
   MENUS,
   DOWNLOADS,
-  PERMS,
   bootEnabled,
-  tabView,
   contentScriptMatches,
   extensions,
   getExtensionContext,
@@ -321,27 +318,17 @@ self.addEventListener("activate", (e) => {
           for (const c of cs) c.postMessage({ type: "zl:tabsOp", op });
         });
       });
-      /* Scripting: the payload carries the exact page destination; the
-         page listener drops anything not addressed to itself. */
-      SCRIPTING.setDispatch((msg) => {
+      /* Extension scripting / download ops take the same broadcast
+         path; the UI acks back through the control channel. */
+      SCRIPTING.setDispatch((op) => {
         void self.clients.matchAll({ type: "window" }).then((cs) => {
-          for (const c of cs) c.postMessage(msg);
+          for (const c of cs) c.postMessage({ type: "zl:scriptingOp", op });
         });
       });
-      /* Downloads: the UI host owns the save. */
       DOWNLOADS.setDispatch((op) => {
         void self.clients.matchAll({ type: "window" }).then((cs) => {
           for (const c of cs) c.postMessage({ type: "zl:downloadOp", op });
         });
-      });
-      /* Advanced permissions: request/remove run through the manager
-         so grants persist and the master record stays authoritative. */
-      PERMS.setBackend(async (id, op, perms) => {
-        const rec =
-          op === "grant"
-            ? await extensions.grantOptional(id, perms)
-            : await extensions.revokeOptional(id, perms);
-        return rec ? { permissions: [...rec.permissions], origins: [...rec.hostPermissions] } : null;
       });
     })(),
   );
@@ -367,9 +354,6 @@ function csInjectUrls(target: string, req: Request): string[] {
           JSON.stringify({ ext: r.extId, js: r.js, css: r.css, runAt: r.runAt }),
         ),
     );
-  }
-  if (exts.some((x) => x.enabled && x.permissions.includes("scripting"))) {
-    urls.push(CS_ROUTE + "__scripting.js");
   }
   return urls;
 }
@@ -457,9 +441,6 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         });
         if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
-          /* Main-frame document loads feed the webNavigation bridge;
-             subresource fetches do not arrive in navigate mode. */
-          if (e.request.mode === "navigate") WEBNAV.committed(target);
           const csInject = csInjectUrls(target, e.request);
           return new Response(rewriteStream(resp.body, target, rule, csInject), {
             status: resp.status,
@@ -521,8 +502,11 @@ interface ControlMessage {
     | "zl:getNetLog"
     | "zl:ext"
     | "zl:tabs"
+    | "zl:scriptingAck"
+    | "zl:downloadAck"
     | "zl:menuClick"
-    | "zl:listExt";
+    | "zl:extList"
+    | "zl:extEnable";
   extId?: string;
   msg?: unknown;
   prefix?: string;
@@ -531,6 +515,14 @@ interface ControlMessage {
   enabled?: boolean;
   /** UI -> SW authoritative tab sync payload. */
   tabs?: UiTab[];
+  /** Scripting/download ack fields and menu click routing. */
+  nonce?: string;
+  results?: unknown[];
+  error?: string;
+  ok?: boolean;
+  menuId?: string;
+  tabId?: number;
+  enabled?: boolean;
   /** Delta sync cursor for zl:getNetLog. */
   since?: number;
 }
@@ -608,9 +600,36 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
       reply({ ok: true });
       break;
     }
-    case "zl:listExt": {
-      /* UI -> SW: the extensions toolbar panel wants the installed
-         list. Summary only: no manifest, no permissions, no paths. */
+    case "zl:scriptingAck": {
+      if (typeof msg.nonce !== "string") {
+        reply({ ok: false, error: "missing nonce" });
+        break;
+      }
+      SCRIPTING.ack(msg.nonce, msg.ok !== false, msg.error, msg.results);
+      reply({ ok: true });
+      break;
+    }
+    case "zl:downloadAck": {
+      if (typeof msg.nonce !== "string") {
+        reply({ ok: false, error: "missing nonce" });
+        break;
+      }
+      DOWNLOADS.ack(msg.nonce, msg.ok !== false, msg.error);
+      reply({ ok: true });
+      break;
+    }
+    case "zl:menuClick": {
+      if (!msg.extId || typeof msg.menuId !== "string") {
+        reply({ ok: false, error: "missing extId or menuId" });
+        break;
+      }
+      MENUS.click(msg.extId, msg.menuId, typeof msg.tabId === "number" ? msg.tabId : null);
+      reply({ ok: true });
+      break;
+    }
+    case "zl:extList": {
+      /* The engine UI's extensions surface: the installed set with
+         lifecycle state, never package internals. */
       reply({
         ok: true,
         extensions: extensions.list().map((r) => ({
@@ -619,38 +638,25 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
           version: r.version,
           state: r.state,
           enabled: r.enabled,
+          permissions: r.permissions,
+          hasAction: r.action !== null,
           lastError: r.lastError,
+          warnings: r.warnings,
         })),
+        menus: MENUS.list(),
       });
       break;
     }
-    case "zl:menuClick": {
-      /* UI -> SW: a context-menu item was clicked on a proxied page.
-         The tab is resolved through the tabs bridge so the extension
-         gets a real permission-gated Tab object. */
-      const em = msg as { extId?: string; msg?: unknown };
-      const info = em.msg as { menuItemId?: unknown; pageUrl?: unknown } | undefined;
-      if (
-        !em.extId ||
-        !info ||
-        typeof info.menuItemId !== "string" ||
-        typeof info.pageUrl !== "string"
-      ) {
-        reply({ ok: false, error: "bad menuClick" });
+    case "zl:extEnable": {
+      if (!msg.extId) {
+        reply({ ok: false, error: "missing extId" });
         break;
       }
-      const rec = extensions.get(em.extId);
-      if (!rec || !rec.enabled) {
-        reply({ ok: false, error: "no such extension" });
-        break;
-      }
-      const tab = TABS.list().find((t) => t.url === info.pageUrl) ?? null;
-      MENUS.click(
-        rec.id,
-        { menuItemId: info.menuItemId, pageUrl: info.pageUrl },
-        tab ? tabView(rec, tab) : null,
+      e.waitUntil(
+        extensions
+          .setEnabled(msg.extId, msg.enabled !== false)
+          .then(() => reply({ ok: true }), (err) => reply({ ok: false, error: String(err) })),
       );
-      reply({ ok: true });
       break;
     }
     default:
