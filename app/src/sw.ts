@@ -580,7 +580,11 @@ interface ControlMessage {
     | "zl:tabs"
     | "zl:menuClick"
     | "zl:listExt"
-    | "zl:getDiag";
+    | "zl:getDiag"
+    | "zl:installExt"
+    | "zl:installExtFiles"
+    | "zl:extEnable"
+    | "zl:extInfo";
   extId?: string;
   msg?: unknown;
   prefix?: string;
@@ -591,6 +595,10 @@ interface ControlMessage {
   tabs?: UiTab[];
   /** Delta sync cursor for zl:getNetLog. */
   since?: number;
+  /** zl:installExt: packaged (.xpi/.zip) bytes. */
+  bytes?: Uint8Array;
+  /** zl:installExtFiles: unpacked directory listing, path -> bytes. */
+  files?: Array<[string, Uint8Array]>;
 }
 
 self.addEventListener("message", (e: ExtendableMessageEvent) => {
@@ -686,6 +694,102 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
           enabled: r.enabled,
           lastError: r.lastError,
         })),
+      });
+      break;
+    }
+    case "zl:installExt": {
+      /* UI -> SW: install a packaged extension. The manager owns every
+         validation (zip limits, manifest parse, permission grants);
+         a bad package lands that extension in ERROR, not the host. */
+      const em = msg as { bytes?: Uint8Array };
+      if (!(em.bytes instanceof Uint8Array)) {
+        reply({ ok: false, error: "missing package bytes" });
+        break;
+      }
+      e.waitUntil(
+        extensions.installFromZip(em.bytes).then(
+          (r) =>
+            reply({
+              ok: true,
+              id: r.id,
+              warnings: r.warnings,
+              unsupportedFields: r.unsupportedFields,
+            }),
+          (err) => reply({ ok: false, error: String(err) }),
+        ),
+      );
+      break;
+    }
+    case "zl:installExtFiles": {
+      /* UI -> SW: install an unpacked extension (a directory listing
+         the UI built from a picked folder). Same manager path. */
+      const em = msg as { files?: Array<[string, Uint8Array]> };
+      const map = new Map<string, Uint8Array>();
+      if (Array.isArray(em.files)) {
+        for (const entry of em.files) {
+          if (Array.isArray(entry) && typeof entry[0] === "string" && entry[1] instanceof Uint8Array) {
+            map.set(entry[0], entry[1]);
+          }
+        }
+      }
+      if (map.size === 0) {
+        reply({ ok: false, error: "no usable files" });
+        break;
+      }
+      e.waitUntil(
+        extensions.installFiles(map).then(
+          (r) =>
+            reply({
+              ok: true,
+              id: r.id,
+              warnings: r.warnings,
+              unsupportedFields: r.unsupportedFields,
+            }),
+          (err) => reply({ ok: false, error: String(err) }),
+        ),
+      );
+      break;
+    }
+    case "zl:extEnable": {
+      /* UI -> SW: enable/disable an installed extension. State
+         persists in the manager's IndexedDB store. */
+      if (!msg.extId || typeof msg.enabled !== "boolean") {
+        reply({ ok: false, error: "bad zl:extEnable" });
+        break;
+      }
+      e.waitUntil(
+        extensions.setEnabled(msg.extId, msg.enabled).then(
+          () => reply({ ok: true }),
+          (err) => reply({ ok: false, error: String(err) }),
+        ),
+      );
+      break;
+    }
+    case "zl:extInfo": {
+      /* UI -> SW: one extension's detail card. The panel already has
+         the summary from zl:listExt; this adds the manifest surface
+         the customize/options affordances need. */
+      const rec = msg.extId ? extensions.get(msg.extId) : null;
+      if (!rec) {
+        reply({ ok: false, error: "no such extension" });
+        break;
+      }
+      const manifest = rec.manifest as Record<string, unknown>;
+      reply({
+        ok: true,
+        extension: {
+          id: rec.id,
+          name: rec.name,
+          version: rec.version,
+          description: typeof manifest.description === "string" ? manifest.description : "",
+          state: rec.state,
+          enabled: rec.enabled,
+          lastError: rec.lastError,
+          permissions: rec.permissions,
+          hostPermissions: rec.hostPermissions,
+          contentScripts: rec.contentScripts.length,
+          optionsPath: rec.options ? rec.options.page : null,
+        },
       });
       break;
     }
