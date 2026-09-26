@@ -150,5 +150,5 @@ export const LISTENER_SOURCE = [
   "      }",
   "    }",
   "  });",
-})();",
+  "})();",
 ].join("\n");
