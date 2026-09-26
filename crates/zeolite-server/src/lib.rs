@@ -20,7 +20,7 @@ pub mod policy;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::{
     extract::{Request, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -28,6 +28,7 @@ use axum::{
 };
 use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -382,12 +383,18 @@ pub fn build_app(shared: Arc<Shared>) -> Router {
         .with_state(shared)
 }
 
-pub async fn wisp_handler(State(sh): State<Arc<Shared>>, ws: WebSocketUpgrade) -> Response {
-    // v2 clients send the wisp subprotocol header; absence means v1.
-    let v2 = ws
-        .protocols()
-        .iter()
-        .any(|p| p.eq_ignore_ascii_case("wisp"));
+pub async fn wisp_handler(
+    State(sh): State<Arc<Shared>>,
+    ws: WebSocketUpgrade,
+    headers: HeaderMap,
+) -> Response {
+    // v2 clients request the "wisp" WebSocket subprotocol; absence means v1.
+    // axum 0.7 has no accessor for the requested subprotocols, so the header
+    // is read directly from the upgrade request.
+    let v2 = headers
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ps| ps.split(',').any(|p| p.trim().eq_ignore_ascii_case("wisp")));
     // Soft limit check here; the exact count is taken when the upgrade
     // actually starts, so failed upgrades never leak a slot.
     if sh.active.load(Ordering::SeqCst) >= sh.cfg.max_connections {

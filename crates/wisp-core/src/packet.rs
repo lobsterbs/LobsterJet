@@ -104,7 +104,10 @@ pub enum Packet {
     /// Stream ID + payload bytes to relay.
     Data { stream_id: u32, payload: Vec<u8> },
     /// Stream ID + remaining buffer slots the peer may use.
-    Continue { stream_id: u32, buffer_remaining: u32 },
+    Continue {
+        stream_id: u32,
+        buffer_remaining: u32,
+    },
     /// Stream ID + close reason. Stream ID 0 = whole connection (handshake).
     Close { stream_id: u32, reason: CloseReason },
     /// Wisp version (major, minor) + negotiated extension metadata.

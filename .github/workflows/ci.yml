@@ -23,11 +23,18 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: cargo fmt --all --check
       - name: clippy
+        # CARGO_TERM_COLOR=never: the error grep below must match real
+        # "error"/"warning" line starts. With color enabled every error
+        # line starts with an ANSI escape and the gate silently passes.
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           cargo clippy --workspace --all-targets -- -D warnings > clippy.out 2>&1 || true
           grep -E "^(error|warning)(\[|:)" clippy.out | head -9 | while IFS= read -r l; do echo "::error::CLIPPY $l"; done
           if grep -qE "^(error|warning)(\[|:)" clippy.out; then exit 1; fi
       - name: test
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           cargo test --workspace > test.out 2>&1 || true
           grep -m1 -B6 -A14 -E "^error|FAILED|panicked at" test.out > testslice.out || true

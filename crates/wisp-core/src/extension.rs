@@ -59,7 +59,9 @@ pub fn password_auth_client_decode(payload: &[u8]) -> Option<(String, String)> {
     if payload.len() - 1 < user_len {
         return None;
     }
-    let username = std::str::from_utf8(&payload[1..1 + user_len]).ok()?.to_string();
+    let username = std::str::from_utf8(&payload[1..1 + user_len])
+        .ok()?
+        .to_string();
     let password = String::from_utf8_lossy(&payload[1 + user_len..]).into_owned();
     Some((username, password))
 }

@@ -48,17 +48,31 @@ impl Frame {
         match self.packet_type {
             PacketType::Connect => {
                 if p.len() < 4 {
-                    return Err(WispError::BufferTooShort { need: 4, have: p.len() });
+                    return Err(WispError::BufferTooShort {
+                        need: 4,
+                        have: p.len(),
+                    });
                 }
                 let kind = StreamKind::from_u8(p[0])?;
                 let port = u16::from_le_bytes([p[1], p[2]]);
                 let hostname = parse_hostname(p)?;
-                Ok(Packet::Connect { stream_id: self.stream_id, kind, port, hostname })
+                Ok(Packet::Connect {
+                    stream_id: self.stream_id,
+                    kind,
+                    port,
+                    hostname,
+                })
             }
-            PacketType::Data => Ok(Packet::Data { stream_id: self.stream_id, payload: p.to_vec() }),
+            PacketType::Data => Ok(Packet::Data {
+                stream_id: self.stream_id,
+                payload: p.to_vec(),
+            }),
             PacketType::Continue => {
                 if p.len() < 4 {
-                    return Err(WispError::BufferTooShort { need: 4, have: p.len() });
+                    return Err(WispError::BufferTooShort {
+                        need: 4,
+                        have: p.len(),
+                    });
                 }
                 Ok(Packet::Continue {
                     stream_id: self.stream_id,
@@ -82,11 +96,17 @@ impl Frame {
 /// CONNECT hostname: layout is [kind u8][port u16][hostlen u8][host].
 fn parse_hostname(p: &[u8]) -> Result<String> {
     if p.len() < 4 {
-        return Err(WispError::BufferTooShort { need: 4, have: p.len() });
+        return Err(WispError::BufferTooShort {
+            need: 4,
+            have: p.len(),
+        });
     }
     let hostlen = p[3] as usize;
     if p.len() < 4 + hostlen {
-        return Err(WispError::BufferTooShort { need: 4 + hostlen, have: p.len() });
+        return Err(WispError::BufferTooShort {
+            need: 4 + hostlen,
+            have: p.len(),
+        });
     }
     Ok(std::str::from_utf8(&p[4..4 + hostlen])?.to_string())
 }
@@ -95,7 +115,10 @@ fn parse_hostname(p: &[u8]) -> Result<String> {
 /// each entry: [id u8][meta_len u32 LE][meta bytes].
 fn parse_info(stream_id: u32, p: &[u8]) -> Result<Packet> {
     if p.len() < 2 {
-        return Err(WispError::BufferTooShort { need: 2, have: p.len() });
+        return Err(WispError::BufferTooShort {
+            need: 2,
+            have: p.len(),
+        });
     }
     let major = p[0];
     let minor = p[1];
@@ -103,24 +126,41 @@ fn parse_info(stream_id: u32, p: &[u8]) -> Result<Packet> {
     let mut extensions = Vec::new();
     while pos < p.len() {
         if p.len() - pos < 5 {
-            return Err(WispError::BufferTooShort { need: pos + 5, have: p.len() });
+            return Err(WispError::BufferTooShort {
+                need: pos + 5,
+                have: p.len(),
+            });
         }
         let id = p[pos];
-        let meta_len = u32::from_le_bytes([p[pos + 1], p[pos + 2], p[pos + 3], p[pos + 4]]) as usize;
+        let meta_len =
+            u32::from_le_bytes([p[pos + 1], p[pos + 2], p[pos + 3], p[pos + 4]]) as usize;
         pos += 5;
         if p.len() - pos < meta_len {
-            return Err(WispError::BufferTooShort { need: pos + meta_len, have: p.len() });
+            return Err(WispError::BufferTooShort {
+                need: pos + meta_len,
+                have: p.len(),
+            });
         }
         extensions.push((id, p[pos..pos + meta_len].to_vec()));
         pos += meta_len;
     }
-    Ok(Packet::Info { stream_id, major, minor, extensions })
+    Ok(Packet::Info {
+        stream_id,
+        major,
+        minor,
+        extensions,
+    })
 }
 
 /// Build a raw frame from a typed packet.
 pub fn encode_packet(packet: &Packet) -> Frame {
     match packet {
-        Packet::Connect { stream_id, kind, port, hostname } => {
+        Packet::Connect {
+            stream_id,
+            kind,
+            port,
+            hostname,
+        } => {
             let host = hostname.as_bytes();
             debug_assert!(host.len() <= 255, "hostname exceeds u8 length prefix");
             let mut p = BytesMut::with_capacity(4 + host.len());
@@ -128,24 +168,40 @@ pub fn encode_packet(packet: &Packet) -> Frame {
             p.put_u16_le(*port);
             p.put_u8(host.len() as u8);
             p.extend_from_slice(host);
-            Frame { packet_type: PacketType::Connect, stream_id: *stream_id, payload: p.freeze() }
+            Frame {
+                packet_type: PacketType::Connect,
+                stream_id: *stream_id,
+                payload: p.freeze(),
+            }
         }
         Packet::Data { stream_id, payload } => Frame {
             packet_type: PacketType::Data,
             stream_id: *stream_id,
             payload: Bytes::from(payload.clone()),
         },
-        Packet::Continue { stream_id, buffer_remaining } => {
+        Packet::Continue {
+            stream_id,
+            buffer_remaining,
+        } => {
             let mut p = BytesMut::with_capacity(4);
             p.put_u32_le(*buffer_remaining);
-            Frame { packet_type: PacketType::Continue, stream_id: *stream_id, payload: p.freeze() }
+            Frame {
+                packet_type: PacketType::Continue,
+                stream_id: *stream_id,
+                payload: p.freeze(),
+            }
         }
         Packet::Close { stream_id, reason } => Frame {
             packet_type: PacketType::Close,
             stream_id: *stream_id,
             payload: Bytes::from(vec![*reason as u8]),
         },
-        Packet::Info { stream_id, major, minor, extensions } => {
+        Packet::Info {
+            stream_id,
+            major,
+            minor,
+            extensions,
+        } => {
             let mut p = BytesMut::new();
             p.put_u8(*major);
             p.put_u8(*minor);
@@ -154,7 +210,11 @@ pub fn encode_packet(packet: &Packet) -> Frame {
                 p.put_u32_le(meta.len() as u32);
                 p.extend_from_slice(meta);
             }
-            Frame { packet_type: PacketType::Info, stream_id: *stream_id, payload: p.freeze() }
+            Frame {
+                packet_type: PacketType::Info,
+                stream_id: *stream_id,
+                payload: p.freeze(),
+            }
         }
     }
 }

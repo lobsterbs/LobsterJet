@@ -5,12 +5,12 @@
 //! https://github.com/MercuryWorkshop/wisp-protocol
 
 pub mod error;
-pub mod frame;
-pub mod packet;
 pub mod extension;
+pub mod frame;
 pub mod handshake;
+pub mod packet;
 
 pub use error::{Result, WispError};
 pub use frame::{encode_packet, Frame};
-pub use handshake::ServerHandshake;
+pub use handshake::{ServerHandshake, handshake_reject, validate_connect};
 pub use packet::{CloseReason, Packet, PacketType, StreamKind};

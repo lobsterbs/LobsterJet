@@ -35,7 +35,11 @@ pub struct ServerHandshake {
 
 impl ServerHandshake {
     pub fn new(server_extensions: Vec<(ExtensionId, Vec<u8>)>) -> Self {
-        Self { server_extensions, version: None, client_info: None }
+        Self {
+            server_extensions,
+            version: None,
+            client_info: None,
+        }
     }
 
     /// True when the WS upgrade request carried a subprotocol header => v2.
@@ -58,7 +62,10 @@ impl ServerHandshake {
             }]
         } else {
             // v1: announce the initial buffer size with a CONTINUE on stream 0.
-            vec![Packet::Continue { stream_id: 0, buffer_remaining: INITIAL_BUFFER_SIZE }]
+            vec![Packet::Continue {
+                stream_id: 0,
+                buffer_remaining: INITIAL_BUFFER_SIZE,
+            }]
         }
     }
 
@@ -68,7 +75,11 @@ impl ServerHandshake {
     /// Err(reason) -> reject with this CLOSE reason.
     pub fn handle(&mut self, packet: &Packet) -> std::result::Result<Option<Packet>, CloseReason> {
         match packet {
-            Packet::Info { stream_id: 0, major, .. } => {
+            Packet::Info {
+                stream_id: 0,
+                major,
+                ..
+            } => {
                 if *major > 2 {
                     return Err(CloseReason::IncompatibleExtensions);
                 }
@@ -108,12 +119,21 @@ impl ServerHandshake {
 
 /// Convenience: build a CLOSE packet for stream 0 (handshake rejection).
 pub fn handshake_reject(reason: CloseReason) -> Packet {
-    Packet::Close { stream_id: 0, reason }
+    Packet::Close {
+        stream_id: 0,
+        reason,
+    }
 }
 
 /// Validate a CONNECT packet destination before opening a socket.
 pub fn validate_connect(pkt: &Packet) -> std::result::Result<(), CloseReason> {
-    if let Packet::Connect { stream_id, kind, port, hostname } = pkt {
+    if let Packet::Connect {
+        stream_id,
+        kind,
+        port,
+        hostname,
+    } = pkt
+    {
         if *stream_id == 0 {
             return Err(CloseReason::InvalidInfo);
         }
@@ -136,7 +156,12 @@ mod tests {
     use super::*;
 
     fn info_packet(major: u8, exts: Vec<(u8, Vec<u8>)>) -> Packet {
-        Packet::Info { stream_id: 0, major, minor: 1, extensions: exts }
+        Packet::Info {
+            stream_id: 0,
+            major,
+            minor: 1,
+            extensions: exts,
+        }
     }
 
     #[test]
@@ -145,7 +170,11 @@ mod tests {
         let open = hs.opening_packets(true);
         assert_eq!(open[0].packet_type(), PacketType::Info);
         let reply = hs.handle(&info_packet(2, vec![(0x01, vec![])])).unwrap();
-        let Some(Packet::Continue { stream_id, buffer_remaining }) = reply else {
+        let Some(Packet::Continue {
+            stream_id,
+            buffer_remaining,
+        }) = reply
+        else {
             panic!("expected CONTINUE");
         };
         assert_eq!(stream_id, 0);
@@ -160,7 +189,10 @@ mod tests {
         let open = hs.opening_packets(false);
         assert!(matches!(open[0], Packet::Continue { .. }));
         let r = hs
-            .handle(&Packet::Continue { stream_id: 0, buffer_remaining: 8 })
+            .handle(&Packet::Continue {
+                stream_id: 0,
+                buffer_remaining: 8,
+            })
             .unwrap();
         assert!(r.is_none());
         assert_eq!(hs.version(), Some(NegotiatedVersion::V1));

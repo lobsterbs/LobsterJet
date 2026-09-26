@@ -25,7 +25,11 @@ impl KeyAuth {
     pub fn new(required: bool, keys: Vec<(String, VerifyingKey)>) -> Self {
         let mut challenge = vec![0u8; 64];
         rand::thread_rng().fill_bytes(&mut challenge);
-        Self { required, keys, challenge }
+        Self {
+            required,
+            keys,
+            challenge,
+        }
     }
 
     pub fn required(&self) -> bool {
@@ -81,7 +85,9 @@ pub fn decode_client(payload: &[u8]) -> Option<(String, u8, &[u8], &[u8])> {
     if payload.len() - pos < user_len {
         return None;
     }
-    let username = std::str::from_utf8(&payload[pos..pos + user_len]).ok()?.to_string();
+    let username = std::str::from_utf8(&payload[pos..pos + user_len])
+        .ok()?
+        .to_string();
     pos += user_len;
     if payload.len() - pos < 1 + 32 {
         return None;
