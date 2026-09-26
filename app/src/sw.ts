@@ -32,6 +32,7 @@ import {
   EXT_ROUTE,
   MESSENGER,
   TABS,
+  WEBNAV,
   bootEnabled,
   contentScriptMatches,
   extensions,
@@ -426,6 +427,9 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         });
         if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
+          /* Main-frame document loads feed the webNavigation bridge;
+             subresource fetches do not arrive in navigate mode. */
+          if (e.request.mode === "navigate") WEBNAV.committed(target);
           const csInject = csInjectUrls(target, e.request);
           return new Response(rewriteStream(resp.body, target, rule, csInject), {
             status: resp.status,

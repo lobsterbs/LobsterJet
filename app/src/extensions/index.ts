@@ -29,3 +29,5 @@ export {
 } from "./serve";
 export { TABS, TabRegistry, tabView, changeView } from "./tabs";
 export type { UiTab, TabsEvent, TabsOp, TabsListener, TabChangeInfo } from "./tabs";
+export { WEBNAV, NavigationRegistry } from "./webnavigation";
+export type { NavigationCommitted, NavigationListener } from "./webnavigation";

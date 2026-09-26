@@ -13,6 +13,8 @@ import type { ExtensionRecord } from "./types";
 import { extensionUrl } from "./origin";
 import { TABS, tabView, changeView } from "./tabs";
 import type { TabsEvent } from "./tabs";
+import { WEBNAV } from "./webnavigation";
+import type { NavigationCommitted } from "./webnavigation";
 import type { ExtensionStorageArea, StorageValue } from "./storage";
 import type { ExtensionMessenger, MessageListener, ConnectListener, MessageSender } from "./messaging";
 
@@ -87,6 +89,33 @@ function makeTabsEvent(
       }));
     },
     removeListener: (l) => {
+      offs.get(l)?.();
+      offs.delete(l);
+    },
+    hasListener: (l) => offs.has(l),
+  };
+}
+
+/* webNavigation.onCommitted gated by the webNavigation permission,
+   exactly as Firefox delivers the event. Listener url filters are
+   accepted but not applied (documented in ./compat). */
+function makeWebNavEvent(
+  ext: ExtensionRecord,
+): EventNamespace<(info: NavigationCommitted) => void> {
+  const offs = new Map<unknown, () => void>();
+  return {
+    addEventListener: (l) => {
+      if (offs.has(l)) return;
+      offs.set(l, WEBNAV.subscribe((info) => {
+        if (!ext.permissions.includes("webNavigation")) return;
+        try {
+          l(info);
+        } catch {
+          /* a broken listener is the extension's own problem */
+        }
+      }));
+    },
+    removeEventListener: (l) => {
       offs.get(l)?.();
       offs.delete(l);
     },
@@ -188,7 +217,8 @@ export function buildApi(
     getAll: (opts?: { populate?: boolean }) => Promise.resolve([win(!!opts?.populate)]),
     onFocusChanged: makeEvent<(windowId: number) => void>(),
   };
-  const browser: Record<string, unknown> = { runtime, storage: storageNs, tabs: tabsNs, windows: windowsNs };
+  const webNavNs = { onCommitted: makeWebNavEvent(ext) };
+  const browser: Record<string, unknown> = { runtime, storage: storageNs, tabs: tabsNs, windows: windowsNs, webNavigation: webNavNs };
   /* Firefox-style chrome.* alias over the same implementations. */
   return { browser, chrome: browser };
 }
