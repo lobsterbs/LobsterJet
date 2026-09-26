@@ -45,7 +45,7 @@ describe("browser.scripting", () => {
   it("reads files and dispatches to the page channel with permission checks", async () => {
     TABS.setDispatch(() => undefined);
     syncTab(1, "https://example.com/page");
-    const { rec, api } = await install("Scripty", ["scripting"], { "inj.js": "// injected" });
+    const { rec, api } = await install("Scripty", ["scripting", "https://example.com/*"], { "inj.js": "// injected" });
     const sent: unknown[] = [];
     SCRIPTING.setDispatch((m) => sent.push(m));
     const scripting = api.browser.scripting as Record<string, unknown>;
@@ -64,11 +64,13 @@ describe("browser.scripting", () => {
 
   it("enforces scripting + host permissions and missing files", async () => {
     TABS.setDispatch(() => undefined);
-    syncTab(2, "https://example.com/x");
-    syncTab(3, "https://other.example/y");
+    TABS.syncFromUi([
+      { id: 2, index: 2, url: "https://example.com/x", title: "t2", active: false },
+      { id: 3, index: 3, url: "https://other.example/y", title: "t3", active: true },
+    ]);
     const noPerm = await install("NoScripting", []);
     const wrongHost = await install("WrongHost", ["scripting"]);
-    const noFile = await install("NoFile", ["scripting"], { "a.js": "//" });
+    const noFile = await install("NoFile", ["scripting", "https://example.com/*"], { "a.js": "//" });
     const sp = (a: { api: { browser: Record<string, unknown> } }) =>
       a.api.browser.scripting as Record<string, unknown>;
     SCRIPTING.setDispatch(() => undefined);
