@@ -1,8 +1,6 @@
 //! Thin entrypoint: all logic lives in the library so the tests can
 //! exercise it. See `zeolite_server` docs for the architecture.
 
-use std::sync::Arc;
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()

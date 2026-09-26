@@ -1115,9 +1115,11 @@ mod tests {
         use ed25519_dalek::{Signature, Signer, SigningKey};
         let sk = SigningKey::generate(&mut rand::rngs::OsRng);
         let vk = ed25519_dalek::VerifyingKey::from(&sk);
-        let mut cfg = Config::default();
         // Verifying key as hex, exactly as ZL_WISP_ED25519_HEX expects.
-        cfg.key_hex = Some(vk.as_bytes().iter().map(|b| format!("{:02x}", b)).collect());
+        let cfg = Config {
+            key_hex: Some(vk.as_bytes().iter().map(|b| format!("{:02x}", b)).collect()),
+            ..Default::default()
+        };
         let sh = Shared::new(cfg);
         // Missing key-auth extension: AuthRequired.
         match check_auth(&sh, None, &[]) {
