@@ -511,7 +511,8 @@ interface ControlMessage {
     | "zl:getNetLog"
     | "zl:ext"
     | "zl:tabs"
-    | "zl:menuClick";
+    | "zl:menuClick"
+    | "zl:listExt";
   extId?: string;
   msg?: unknown;
   prefix?: string;
@@ -595,6 +596,22 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
       }
       TABS.syncFromUi(msg.tabs);
       reply({ ok: true });
+      break;
+    }
+    case "zl:listExt": {
+      /* UI -> SW: the extensions toolbar panel wants the installed
+         list. Summary only: no manifest, no permissions, no paths. */
+      reply({
+        ok: true,
+        extensions: extensions.list().map((r) => ({
+          id: r.id,
+          name: r.name,
+          version: r.version,
+          state: r.state,
+          enabled: r.enabled,
+          lastError: r.lastError,
+        })),
+      });
       break;
     }
     case "zl:menuClick": {
