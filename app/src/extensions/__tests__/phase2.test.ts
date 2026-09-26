@@ -89,25 +89,19 @@ describe("browser.scripting", () => {
 });
 
 describe("browser.webNavigation", () => {
-  it("delivers committed/completed/error events", async () => {
-    const { api } = await install("WebNav1", []);
-    const webNav = api.browser.webNavigation as Record<string, unknown>;
-    const seen: string[] = [];
-    for (const kind of ["onCommitted", "onCompleted", "onErrorOccurred"]) {
-      ((webNav[kind] as { addListener: (l: (d: unknown) => void) => void }).addListener)((d) =>
-        seen.push(kind + ":" + String((d as { url: string }).url)),
-      );
-    }
-    WEBNAV.fire("committed", { tabId: 1, url: "https://a.example/", frameId: 0 });
-    WEBNAV.fire("completed", { tabId: 1, url: "https://a.example/", frameId: 0 });
-    WEBNAV.fire("error", { tabId: 1, url: "https://a.example/", frameId: 0, err: "nope" });
-    WEBNAV.fire("completed", { tabId: 1, url: "https://a.example/", frameId: 0 });
-    expect(seen).toEqual([
-      "onCommitted:https://a.example/",
-      "onCompleted:https://a.example/",
-      "onErrorOccurred:https://a.example/",
-      "onCompleted:https://a.example/",
-    ]);
+  it("delivers onCommitted for known tabs only, permission-gated", async () => {
+    TABS.setDispatch(() => undefined);
+    TABS.syncFromUi([{ id: 7, index: 7, url: "https://example.com/", title: "t", active: true }]);
+    const { api } = await install("Phase2Nav", ["webNavigation"]);
+    const nav = api.browser.webNavigation as Record<string, unknown>;
+    const seen: unknown[] = [];
+    ((nav.onCommitted as { addListener: (l: (i: unknown) => void) => void }).addListener)((i) =>
+      seen.push(i),
+    );
+    WEBNAV.committed("https://example.com/");
+    WEBNAV.committed("https://unknown.example/");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ tabId: 7, url: "https://example.com/", frameId: 0 });
   });
 });
 

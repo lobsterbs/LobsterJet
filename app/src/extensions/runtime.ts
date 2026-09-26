@@ -16,7 +16,7 @@ import type { TabsEvent } from "./tabs";
 import { SCRIPTING } from "./scripting";
 import type { ScriptingInjection } from "./scripting";
 import { WEBNAV } from "./webnavigation";
-import type { NavDetails, NavKind } from "./webnavigation";
+import type { NavigationCommitted } from "./webnavigation";
 import { MENUS } from "./contextmenus";
 import { DOWNLOADS } from "./downloads";
 import type { ExtensionStorageArea, StorageValue } from "./storage";
@@ -100,18 +100,30 @@ function makeTabsEvent(
   };
 }
 
-function makeNavEvent(kind: NavKind): EventNamespace<(details: NavDetails) => void> {
+/* webNavigation.onCommitted gated by the webNavigation permission,
+   exactly as Firefox delivers the event. Listener url filters are
+   accepted but not applied (documented in ./compat). */
+function makeWebNavEvent(
+  ext: ExtensionRecord,
+): EventNamespace<(info: NavigationCommitted) => void> {
   const offs = new Map<unknown, () => void>();
   return {
-    addListener: (l) => {
+    addListener: (l: (info: NavigationCommitted) => void) => {
       if (offs.has(l)) return;
-      offs.set(l, WEBNAV.subscribe(kind, l));
+      offs.set(l, WEBNAV.subscribe((info) => {
+        if (!ext.permissions.includes("webNavigation")) return;
+        try {
+          l(info);
+        } catch {
+          /* a broken listener is the extension's own problem */
+        }
+      }));
     },
-    removeListener: (l) => {
+    removeListener: (l: (info: NavigationCommitted) => void) => {
       offs.get(l)?.();
       offs.delete(l);
     },
-    hasListener: (l) => offs.has(l),
+    hasListener: (l: (info: NavigationCommitted) => void) => offs.has(l),
   };
 }
 
@@ -238,11 +250,7 @@ export function buildApi(
     insertCSS: (inj: ScriptingInjection) => SCRIPTING.insertCSS(ext, inj),
   };
   /* webNavigation: events derived from the proxy fetch path. */
-  const webNavigationNs = {
-    onCommitted: makeNavEvent("committed"),
-    onCompleted: makeNavEvent("completed"),
-    onErrorOccurred: makeNavEvent("error"),
-  };
+  const webNavigationNs = { onCommitted: makeWebNavEvent(ext) };
   /* contextMenus + Firefox's menus alias over one registry. */
   const contextMenusNs = {
     create: (props: Record<string, unknown> = {}) => MENUS.create(ext, props),

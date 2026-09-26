@@ -128,7 +128,6 @@ function rewriteStream(
   base: string,
   rule: { inject?: string[]; block?: string[] },
   csInject: string[],
-  onDone?: () => void,
 ): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -150,7 +149,6 @@ function rewriteStream(
             const tail = rw.finish();
             if (tail) controller.enqueue(encoder.encode(tail));
             controller.close();
-            onDone?.();
             return;
           }
           const out = rw.process(decoder.decode(value, { stream: true }));
@@ -407,7 +405,6 @@ self.addEventListener("fetch", (e: FetchEvent) => {
   e.respondWith(
     (async () => {
       const t0 = Date.now();
-      const isTopDoc = (e.request.headers.get("sec-fetch-dest") ?? "document") === "document";
       /* Cache-first for proxied GETs. */
       if (e.request.method === "GET") {
         const hit = await pageCacheMatch(e.request);
@@ -450,17 +447,10 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         });
         if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
+          /* Main-frame document loads feed the webNavigation bridge;
+             subresource fetches do not arrive in navigate mode. */
+          if (e.request.mode === "navigate") WEBNAV.committed(target);
           const csInject = csInjectUrls(target, e.request);
-          if (isTopDoc) {
-            const navTabId = TABS.list().find((t) => t.url === target)?.id ?? -1;
-            WEBNAV.fire("committed", { tabId: navTabId, url: target, frameId: 0 });
-            return new Response(
-              rewriteStream(resp.body, target, rule, csInject, () => {
-                WEBNAV.fire("completed", { tabId: navTabId, url: target, frameId: 0 });
-              }),
-              { status: resp.status, headers },
-            );
-          }
           return new Response(rewriteStream(resp.body, target, rule, csInject), {
             status: resp.status,
             headers,
@@ -476,14 +466,6 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         }
         return new Response(resp.body, { status: resp.status, headers });
       } catch (err) {
-        if (isTopDoc) {
-          WEBNAV.fire("error", {
-            tabId: TABS.list().find((t) => t.url === target)?.id ?? -1,
-            url: target,
-            frameId: 0,
-            err: String(err),
-          });
-        }
         netLogPush({
           method: e.request.method,
           path: url.pathname + url.search,
