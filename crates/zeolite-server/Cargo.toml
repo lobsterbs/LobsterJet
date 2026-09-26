@@ -3,7 +3,7 @@ name = "zeolite-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Zeolite standalone server: Wisp v2.1 relay over WebSocket + static hosting of the engine app"
+description = "Zeolite standalone server: Wisp v2.1 TCP+UDP relay over WebSocket + static hosting of the engine app"
 
 [[bin]]
 name = "zeolite-server"
@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 wisp-core = { workspace = true }
+wisp-extensions = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
 tower-http = { version = "0.5", features = ["fs"] }
@@ -18,3 +19,8 @@ bytes = { workspace = true }
 futures = { version = "0.3" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+sha2 = "0.10"
