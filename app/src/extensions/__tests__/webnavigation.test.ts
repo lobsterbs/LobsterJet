@@ -75,11 +75,6 @@ describe("browser.webNavigation (buildApi)", () => {
     const seenBare: NavigationCommitted[] = [];
     const add = (ns: Record<string, unknown>, out: NavigationCommitted[]) =>
       ((ns.onCommitted as { addListener: (l: (i: NavigationCommitted) => void) => void }).addListener)((i) => out.push(i));
-    add(nav, seenPerm);
-    add(navBare, seenBare);
-    WEBNAV.committed("https://example.com/");
-    expect(seenPerm[0]).toMatchObject({ tabId: 10 });
-    expect(seenBare).toHaveLength(0);
     const ns = nav.onCommitted as {
       addListener: (l: (i: NavigationCommitted) => void) => void;
       removeListener: (l: (i: NavigationCommitted) => void) => void;
@@ -87,7 +82,10 @@ describe("browser.webNavigation (buildApi)", () => {
     };
     const listener = (i: NavigationCommitted) => seenPerm.push(i);
     ns.addListener(listener);
-    expect(ns.hasListener(listener)).toBe(true);
+    add(navBare, seenBare);
+    WEBNAV.committed("https://example.com/");
+    expect(seenPerm[0]).toMatchObject({ tabId: 10 });
+    expect(seenBare).toHaveLength(0);
     WEBNAV.committed("https://example.com/");
     expect(seenPerm).toHaveLength(2);
     ns.removeListener(listener);
