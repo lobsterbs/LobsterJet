@@ -10,7 +10,15 @@ pub fn is_url_attr(tag: &str, attr: &str) -> bool {
         "href" => matches!(tag, "a" | "area" | "link" | "base"),
         "src" => matches!(
             tag,
-            "img" | "script" | "iframe" | "source" | "video" | "audio" | "embed" | "track" | "input"
+            "img"
+                | "script"
+                | "iframe"
+                | "source"
+                | "video"
+                | "audio"
+                | "embed"
+                | "track"
+                | "input"
         ),
         "action" | "formaction" | "poster" | "background" | "cite" | "lowsrc" => true,
         "data" => matches!(tag, "object"),

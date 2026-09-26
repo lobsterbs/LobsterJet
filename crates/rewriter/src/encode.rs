@@ -203,7 +203,14 @@ mod tests {
 
     #[test]
     fn b64_roundtrip() {
-        for s in ["", "a", "ab", "abc", "https://example.com/x?y=1", "Ã¼nÃ¯code"] {
+        for s in [
+            "",
+            "a",
+            "ab",
+            "abc",
+            "https://example.com/x?y=1",
+            "Ã¼nÃ¯code",
+        ] {
             assert_eq!(
                 b64u_decode(&b64u_encode(s.as_bytes())).unwrap(),
                 s.as_bytes()
