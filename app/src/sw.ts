@@ -31,6 +31,7 @@ import {
   CS_ROUTE,
   EXT_ROUTE,
   MESSENGER,
+  TABS,
   bootEnabled,
   contentScriptMatches,
   extensions,
@@ -39,6 +40,7 @@ import {
   serveExtensionAsset,
 } from "./extensions";
 import type { ExtensionStorageArea } from "./extensions/storage";
+import type { UiTab } from "./extensions/tabs";
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -305,6 +307,14 @@ self.addEventListener("activate", (e) => {
       } catch {
         /* extension subsystem unavailable: stays inert */
       }
+      /* Tabs bridge: extension ops broadcast to the engine UI clients,
+         which own the real tab model and mirror changes back through
+         the zl:tabs sync channel. */
+      TABS.setDispatch((op) => {
+        void self.clients.matchAll({ type: "window" }).then((cs) => {
+          for (const c of cs) c.postMessage({ type: "zl:tabsOp", op });
+        });
+      });
     })(),
   );
 });
@@ -475,13 +485,16 @@ interface ControlMessage {
     | "zl:teardown"
     | "zl:ping"
     | "zl:getNetLog"
-    | "zl:ext";
+    | "zl:ext"
+    | "zl:tabs";
   extId?: string;
   msg?: unknown;
   prefix?: string;
   scheme?: "b64u" | "mirror";
   site?: string;
   enabled?: boolean;
+  /** UI -> SW authoritative tab sync payload. */
+  tabs?: UiTab[];
   /** Delta sync cursor for zl:getNetLog. */
   since?: number;
 }
@@ -546,6 +559,17 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
           (err) => reply({ ok: false, error: String(err) }),
         ),
       );
+      break;
+    }
+    case "zl:tabs": {
+      /* Authoritative tab list from the UI. The registry diffs it,
+         fires tab events, and resolves pending extension ops. */
+      if (!Array.isArray(msg.tabs)) {
+        reply({ ok: false, error: "missing tabs" });
+        break;
+      }
+      TABS.syncFromUi(msg.tabs);
+      reply({ ok: true });
       break;
     }
     default:

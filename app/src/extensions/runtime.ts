@@ -11,6 +11,8 @@
 
 import type { ExtensionRecord } from "./types";
 import { extensionUrl } from "./origin";
+import { TABS, tabView, changeView } from "./tabs";
+import type { TabsEvent } from "./tabs";
 import type { ExtensionStorageArea, StorageValue } from "./storage";
 import type { ExtensionMessenger, MessageListener, ConnectListener, MessageSender } from "./messaging";
 
@@ -42,6 +44,54 @@ function wrapArea(area: ExtensionStorageArea): Record<string, unknown> {
     remove: (keys: string | string[]) => area.remove(keys),
     clear: () => area.clear(),
     getBytesInUse: (keys?: string | string[]) => area.getBytesInUse(keys),
+  };
+}
+
+/* ---- tabs / windows event plumbing -------------------------------- */
+
+/** Args one extension's tab listener gets for a registry event, with
+    url/title fields permission-gated per Firefox semantics. */
+function tabsEventArgs(
+  ext: ExtensionRecord,
+  kind: "created" | "updated" | "activated" | "removed",
+  ev: TabsEvent
+): unknown[] | null {
+  if (ev.type !== kind) return null;
+  switch (kind) {
+    case "created":
+      return [tabView(ext, ev.tab)];
+    case "updated":
+      return [ev.tabId, changeView(ext, ev.change), tabView(ext, ev.tab)];
+    case "activated":
+      return [{ tabId: ev.tabId, windowId: ev.windowId }];
+    case "removed":
+      return [ev.tabId, { windowId: ev.windowId, isWindowClosing: false }];
+  }
+}
+
+function makeTabsEvent(
+  ext: ExtensionRecord,
+  kind: "created" | "updated" | "activated" | "removed"
+): EventNamespace<(...args: unknown[]) => void> {
+  const offs = new Map<unknown, () => void>();
+  return {
+    addListener: (l) => {
+      if (offs.has(l)) return;
+      offs.set(l, TABS.subscribe((ev) => {
+        const args = tabsEventArgs(ext, kind, ev);
+        if (!args) return;
+        try {
+          l(...args);
+        } catch {
+          /* a broken listener is the extension's own problem */
+        }
+      }));
+    },
+    removeListener: (l) => {
+      offs.get(l)?.();
+      offs.delete(l);
+    },
+    hasListener: (l) => offs.has(l),
   };
 }
 
@@ -89,7 +139,57 @@ export function buildApi(
     sync: wrapArea(deps.storage.sync),
     session: wrapArea(deps.storage.session),
   };
-  const browser: Record<string, unknown> = { runtime, storage: storageNs };
+  /* tabs: the engine-side mirror of the UI tab model (see ./tabs).
+     The tabs permission (or a matching host permission) gates url and
+     title visibility exactly as Firefox does; getCurrent has no tab
+     context here and rejects honestly. */
+  const tabsNs = {
+    get: (id: number) => {
+      const t = TABS.get(id);
+      return t ? Promise.resolve(tabView(ext, t)) : Promise.reject(new Error("Invalid tab ID: " + id));
+    },
+    getCurrent: () =>
+      Promise.reject(new Error("zeolite: tabs.getCurrent may only be called from a tab context")),
+    query: (q: Record<string, unknown> = {}) => {
+      if (!ext.permissions.includes("tabs") && (q.url !== undefined || q.title !== undefined)) {
+        return Promise.reject(
+          new Error("zeolite: tabs.query url/title matching requires the 'tabs' permission"),
+        );
+      }
+      return Promise.resolve(TABS.query(q).map((t) => tabView(ext, t)));
+    },
+    create: (props: Record<string, unknown> = {}) =>
+      TABS.create(props as { url?: string; active?: boolean; index?: number }),
+    update: (id: number | undefined, props: Record<string, unknown> = {}) =>
+      TABS.update(id ?? null, props as { active?: boolean; url?: string }),
+    remove: (ids: number | number[]) => TABS.remove(Array.isArray(ids) ? ids : [ids]),
+    onCreated: makeTabsEvent(ext, "created"),
+    onUpdated: makeTabsEvent(ext, "updated"),
+    onActivated: makeTabsEvent(ext, "activated"),
+    onRemoved: makeTabsEvent(ext, "removed"),
+  };
+  /* windows: this engine is a single window; focus never changes. */
+  const win = (populate: boolean) => ({
+    id: 1,
+    focused: true,
+    incognito: false,
+    alwaysOnTop: false,
+    state: "normal",
+    ...(populate ? { tabs: TABS.list().map((t) => tabView(ext, t)) } : {}),
+  });
+  const windowsNs = {
+    WINDOW_ID_CURRENT: -1,
+    WINDOW_ID_NONE: -1,
+    get: (id: number, opts?: { populate?: boolean }) =>
+      id === 1 || id === -1
+        ? Promise.resolve(win(!!opts?.populate))
+        : Promise.reject(new Error("Invalid window ID: " + id)),
+    getCurrent: (opts?: { populate?: boolean }) => Promise.resolve(win(!!opts?.populate)),
+    getLastFocused: (opts?: { populate?: boolean }) => Promise.resolve(win(!!opts?.populate)),
+    getAll: (opts?: { populate?: boolean }) => Promise.resolve([win(!!opts?.populate)]),
+    onFocusChanged: makeEvent<(windowId: number) => void>(),
+  };
+  const browser: Record<string, unknown> = { runtime, storage: storageNs, tabs: tabsNs, windows: windowsNs };
   /* Firefox-style chrome.* alias over the same implementations. */
   return { browser, chrome: browser };
 }

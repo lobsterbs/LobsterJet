@@ -27,3 +27,5 @@ export {
   EXT_ROUTE,
   CS_ROUTE,
 } from "./serve";
+export { TABS, TabRegistry, tabView, changeView } from "./tabs";
+export type { UiTab, TabsEvent, TabsOp, TabsListener, TabChangeInfo } from "./tabs";
