@@ -27,6 +27,7 @@ import { decodePath, isEnginePath, setScheme, currentPrefix } from "./codec";
 import { ZL_WISP_URL } from "./config";
 import { ruleFor, siteRules } from "./siteconfig";
 import { applyOnRequest, applyOnResponse } from "./plugins";
+import { DIAG } from "./diag";
 import {
   CS_ROUTE,
   EXT_ROUTE,
@@ -183,6 +184,8 @@ export interface NetEntry {
   /** Plugin verdict from the onRequest hooks, when any plugin ran. */
   verdict?: string;
   err?: string;
+  /** Diagnostics trace identifier, joinable with zl:getDiag events. */
+  traceId?: string;
 }
 
 const NET_LIMIT = 256;
@@ -415,12 +418,14 @@ self.addEventListener("fetch", (e: FetchEvent) => {
   e.respondWith(
     (async () => {
       const t0 = Date.now();
+      const traceId = DIAG.trace();
+      DIAG.stage(traceId, "REQUEST_INTERCEPTED", { url: target });
       /* Cache-first for proxied GETs. */
       if (e.request.method === "GET") {
         const hit = await pageCacheMatch(e.request);
         if (hit) {
           netLogPush({
-            method: e.request.method,
+            method: e.request.method, traceId,
             path: url.pathname + url.search,
             dest: target,
             status: hit.status,
@@ -435,19 +440,21 @@ self.addEventListener("fetch", (e: FetchEvent) => {
       const rule = ruleFor(rules, target);
       const plugins = rule.plugins;
       try {
+        DIAG.stage(traceId, "UPSTREAM_REQUEST", { url: target });
         const fwd = forwardedHeaders(e.request);
         await applyOnRequest(plugins, target, fwd);
         const resp = await wispFetch(target, {
-          method: e.request.method,
+          method: e.request.method, traceId,
           headers: fwd,
           body: ["GET", "HEAD"].includes(e.request.method) ? undefined : e.request.body,
           redirect: "follow",
         });
+        DIAG.stage(traceId, "UPSTREAM_RESPONSE", { url: target, message: "upstream status " + resp.status });
         const headers = stripHostile(resp.headers);
         headers.set("x-zl-proxy", "1");
         void applyOnResponse(plugins, target, resp.status, headers);
         netLogPush({
-          method: e.request.method,
+          method: e.request.method, traceId,
           path: url.pathname + url.search,
           dest: target,
           status: resp.status,
@@ -457,6 +464,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         });
         if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
+          DIAG.stage(traceId, "REWRITE_STARTED", { url: target, message: "html rewrite stream wired" });
           /* Main-frame document loads feed the webNavigation bridge;
              subresource fetches do not arrive in navigate mode. */
           if (e.request.mode === "navigate") WEBNAV.committed(target);
@@ -469,15 +477,26 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         if (isCss(resp) && resp.body) {
           // Standalone stylesheets: one-shot url() pass through the
           // rewriter module. Small bodies, not first-paint documents.
+          DIAG.stage(traceId, "REWRITE_STARTED", { url: target, message: "css rewrite" });
           const mod = await rewriter();
           const css = await resp.text();
           const out = mod.rewriteCss(css, self.location.origin, target, currentPrefix());
+          DIAG.stage(traceId, "REWRITE_COMPLETED", { url: target, category: "REWRITE" });
           return new Response(out, { status: resp.status, headers });
         }
         return new Response(resp.body, { status: resp.status, headers });
       } catch (err) {
+        DIAG.failure({
+          traceId,
+          category: "TRANSPORT",
+          cause: "upstream",
+          stage: "REWRITE_FAILED",
+          message: "proxied request failed",
+          technicalReason: String(err),
+          url: target,
+        });
         netLogPush({
-          method: e.request.method,
+          method: e.request.method, traceId,
           path: url.pathname + url.search,
           dest: target,
           status: 0,
@@ -522,7 +541,8 @@ interface ControlMessage {
     | "zl:ext"
     | "zl:tabs"
     | "zl:menuClick"
-    | "zl:listExt";
+    | "zl:listExt"
+    | "zl:getDiag";
   extId?: string;
   msg?: unknown;
   prefix?: string;
@@ -577,6 +597,13 @@ self.addEventListener("message", (e: ExtendableMessageEvent) => {
       const since = (msg as { since?: number }).since ?? 0;
       reply({ entries: netLog.filter((x) => x.seq > since), lastSeq: netSeq, generation: netGeneration,
           version: ZEOLITE_VERSION, });
+      break;
+    }
+    case "zl:getDiag": {
+      /* UI -> SW: diagnostics delta poll. Same cursor protocol as
+         zl:getNetLog so the devtools page can poll both cheaply. */
+      const since = (msg as { since?: number }).since ?? 0;
+      reply({ ok: true, ...DIAG.snapshot(since) });
       break;
     }
     case "zl:ext": {
