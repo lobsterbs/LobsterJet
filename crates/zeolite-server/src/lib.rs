@@ -382,7 +382,7 @@ pub fn build_app(shared: Arc<Shared>) -> Router {
         .with_state(shared)
 }
 
-async fn wisp_handler(State(sh): State<Arc<Shared>>, ws: WebSocketUpgrade) -> Response {
+pub async fn wisp_handler(State(sh): State<Arc<Shared>>, ws: WebSocketUpgrade) -> Response {
     // v2 clients send the wisp subprotocol header; absence means v1.
     let v2 = ws
         .protocols()
