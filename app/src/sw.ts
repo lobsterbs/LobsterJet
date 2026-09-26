@@ -183,6 +183,12 @@ export interface NetEntry {
   bytes: number;
   /** Plugin verdict from the onRequest hooks, when any plugin ran. */
   verdict?: string;
+  /** Resource type classification (DOCUMENT/SCRIPT/STYLE/...). fetch()
+      and XHR are not distinguishable without initiator info, so both
+      are reported as FETCH rather than guessed apart. */
+  rtype: string;
+  /** Rewrite applied to this response, when any: "html" | "css". */
+  rewritten?: string;
   err?: string;
   /** Diagnostics trace identifier, joinable with zl:getDiag events. */
   traceId?: string;
@@ -285,6 +291,28 @@ function siteDisabled(target: string): boolean {
 }
 
 /* ---- Fetch interception -------------------------------------------- */
+
+/** Classify a request by sec-fetch-dest plus response content-type.
+    The devtools network panel filters on this; honest fallbacks only:
+    unknown destinations and unknown content types report OTHER. */
+function classifyRtype(destHeader: string, contentType: string): string {
+  const d = destHeader.toLowerCase();
+  const ct = contentType.toLowerCase();
+  if (d === "document") return "DOCUMENT";
+  if (d === "style" || ct.includes("text/css")) return "STYLE";
+  if (d === "script" || /javascript|ecmascript/.test(ct)) return "SCRIPT";
+  if (d === "image" || ct.startsWith("image/")) return "IMAGE";
+  if (d === "font" || /font|woff|ttf|otf/.test(ct)) return "FONT";
+  if (d === "audio" || d === "video" || ct.startsWith("audio/") || ct.startsWith("video/"))
+    return "MEDIA";
+  if (d === "worker" || d === "sharedworker" || d === "serviceworker") return "WORKER";
+  if (d === "manifest" || ct.includes("manifest")) return "MANIFEST";
+  if (d === "websocket") return "WEBSOCKET";
+  if (d === "eventsource" || ct.includes("event-stream")) return "EVENTSOURCE";
+  if (ct.includes("wasm")) return "WASM";
+  if (d === "empty") return "FETCH";
+  return "OTHER";
+}
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -429,6 +457,10 @@ self.addEventListener("fetch", (e: FetchEvent) => {
             path: url.pathname + url.search,
             dest: target,
             status: hit.status,
+            rtype: classifyRtype(
+              e.request.headers.get("sec-fetch-dest") ?? "",
+              hit.headers.get("content-type") ?? "",
+            ),
             ms: Date.now() - t0,
             bytes: Number(hit.headers.get("content-length") ?? -1),
             verdict: "cache",
@@ -461,6 +493,11 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           ms: Date.now() - t0,
           bytes: Number(resp.headers.get("content-length") ?? -1),
           verdict: plugins?.length ? "pass:" + plugins.length : undefined,
+          rtype: classifyRtype(
+            e.request.headers.get("sec-fetch-dest") ?? "",
+            resp.headers.get("content-type") ?? "",
+          ),
+          rewritten: isHtml(resp) ? "html" : isCss(resp) ? "css" : undefined,
         });
         if (e.request.method === "GET") void pageCacheStore(e.request, resp.clone());
         if (isHtml(resp) && resp.body) {
@@ -500,6 +537,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
           path: url.pathname + url.search,
           dest: target,
           status: 0,
+          rtype: classifyRtype(e.request.headers.get("sec-fetch-dest") ?? "", ""),
           ms: Date.now() - t0,
           bytes: -1,
           err: String(err),
