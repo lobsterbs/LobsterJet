@@ -21,7 +21,7 @@ export interface NavigationCommitted {
 
 export type NavigationListener = (info: NavigationCommitted) => void;
 
-class NavigationRegistry {
+export class NavigationRegistry {
   private readonly listeners = new Set<NavigationListener>();
 
   subscribe(l: NavigationListener): () => void {

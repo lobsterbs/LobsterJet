@@ -104,7 +104,7 @@ function makeWebNavEvent(
 ): EventNamespace<(info: NavigationCommitted) => void> {
   const offs = new Map<unknown, () => void>();
   return {
-    addEventListener: (l) => {
+    addListener: (l: (info: NavigationCommitted) => void) => {
       if (offs.has(l)) return;
       offs.set(l, WEBNAV.subscribe((info) => {
         if (!ext.permissions.includes("webNavigation")) return;
@@ -115,11 +115,11 @@ function makeWebNavEvent(
         }
       }));
     },
-    removeEventListener: (l) => {
+    removeListener: (l: (info: NavigationCommitted) => void) => {
       offs.get(l)?.();
       offs.delete(l);
     },
-    hasListener: (l) => offs.has(l),
+    hasListener: (l: (info: NavigationCommitted) => void) => offs.has(l),
   };
 }
 
