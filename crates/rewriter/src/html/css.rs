@@ -9,19 +9,20 @@ pub fn rewrite_stylesheet(css: &str, enc: &dyn Fn(&str) -> String) -> String {
     let bytes = css.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'u' || bytes[i] == b'U' {
-            if css[i..].len() >= 4 && css[i..i + 4].eq_ignore_ascii_case("url(") {
-                let paren = i + 4;
-                // Find matching close paren.
-                if let Some(close) = css[paren..].find(')') {
-                    let inner = css[paren..paren + close].trim();
-                    let url = inner.trim_matches(|c| c == '\'' || c == '"');
-                    out.push_str("url('");
-                    out.push_str(&enc(url));
-                    out.push_str("')");
-                    i = paren + close + 1;
-                    continue;
-                }
+        if (bytes[i] == b'u' || bytes[i] == b'U')
+            && css[i..].len() >= 4
+            && css[i..i + 4].eq_ignore_ascii_case("url(")
+        {
+            let paren = i + 4;
+            // Find matching close paren.
+            if let Some(close) = css[paren..].find(')') {
+                let inner = css[paren..paren + close].trim();
+                let url = inner.trim_matches(|c| c == '\'' || c == '"');
+                out.push_str("url('");
+                out.push_str(&enc(url));
+                out.push_str("')");
+                i = paren + close + 1;
+                continue;
             }
         }
         // Copy one char (UTF-8 safe).

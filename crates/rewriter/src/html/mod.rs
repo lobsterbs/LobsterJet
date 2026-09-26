@@ -19,7 +19,7 @@ pub mod css;
 pub mod url_attrs;
 
 use crate::config::RewriteConfig;
-use crate::encode::{resolve, url_host};
+use crate::encode::resolve;
 
 /// Tokenizer state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,9 +396,10 @@ fn next_attr(s: &str) -> Option<(usize, String, Option<String>, bool)> {
         let ws = vrest.len() - vstart.len();
         let (val, consumed_v, quoted) = if vstart.starts_with('"') || vstart.starts_with('\'') {
             let q = vstart.as_bytes()[0] as char;
-            match vstart[1..].find(q) {
-                Some(i) => (vstart[1..1 + i].to_string(), ws + 1 + i + 2, true),
-                None => return None, // value not closed yet
+            {
+                // Value not closed yet.
+                let i = vstart[1..].find(q)?;
+                (vstart[1..1 + i].to_string(), ws + 1 + i + 2, true)
             }
         } else {
             let end = vstart
@@ -559,10 +560,7 @@ mod tests {
         );
         assert!(!out.contains("pixel.gif"), "blocked img dropped: {}", out);
         assert!(
-            out.contains(
-                "img.example.com/ok.png".replace("img.example.com", "example.com/j/")
-                    || out.contains("/j/")
-            ),
+            out.contains(&c.encode_url("https://img.example.com/ok.png")) || out.contains("/j/"),
             "kept img rewritten: {}",
             out
         );
