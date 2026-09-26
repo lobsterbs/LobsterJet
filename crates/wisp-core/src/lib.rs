@@ -12,5 +12,5 @@ pub mod packet;
 
 pub use error::{Result, WispError};
 pub use frame::{encode_packet, Frame};
-pub use handshake::{ServerHandshake, handshake_reject, validate_connect};
+pub use handshake::{handshake_reject, validate_connect, ServerHandshake};
 pub use packet::{CloseReason, Packet, PacketType, StreamKind};
