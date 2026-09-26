@@ -444,7 +444,7 @@ self.addEventListener("fetch", (e: FetchEvent) => {
         const fwd = forwardedHeaders(e.request);
         await applyOnRequest(plugins, target, fwd);
         const resp = await wispFetch(target, {
-          method: e.request.method, traceId,
+          method: e.request.method,
           headers: fwd,
           body: ["GET", "HEAD"].includes(e.request.method) ? undefined : e.request.body,
           redirect: "follow",
