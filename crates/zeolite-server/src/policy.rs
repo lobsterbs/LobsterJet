@@ -136,9 +136,15 @@ mod tests {
 
     #[test]
     fn toggles_disable_checks() {
-        let p = DestinationPolicy { block_local_names: false, ..Default::default() };
+        let p = DestinationPolicy {
+            block_local_names: false,
+            ..Default::default()
+        };
         assert_eq!(p.check_hostname("localhost"), Verdict::Allow);
-        let p = DestinationPolicy { block_private_ips: false, ..Default::default() };
+        let p = DestinationPolicy {
+            block_private_ips: false,
+            ..Default::default()
+        };
         assert_eq!(p.check_ip(&"127.0.0.1".parse().unwrap()), Verdict::Allow);
     }
 }
