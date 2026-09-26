@@ -125,6 +125,23 @@ jobs:
         with:
           name: zeolite-app
           path: app/dist/
+      # Publish the engine bundle for same-origin embedders: the dist
+      # branch always carries the newest green main build (sw.js and
+      # its chunks/assets). The vendored libcurl transport is stripped
+      # first: the AGPL bundle is never committed to git; embedders
+      # pull it from npm at their own build time, same as this CI.
+      - name: Publish engine bundle branch (dist)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          rm -rf app/dist/libcurl
+          git config user.name "zeolite-ci"
+          git config user.email "ci@lobsterbrowse.invalid"
+          git checkout --orphan dist
+          git rm -rf --quiet . || true
+          cp -r app/dist/. .
+          git add -A
+          git commit -m "engine bundle: build ${GITHUB_RUN_ID}"
+          git push -f origin HEAD:dist
 
   compat:
     # Nightly only: needs a built engine. Phase 1 gate: YouTube + Reddit
