@@ -4,7 +4,12 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: "0 3 * * *" # nightly compat suite
+    - cron: "0 3 * * *"
+
+# The engine-bundle publish step pushes the dist branch with the
+# workflow token; the repo default grants it read-only.
+permissions:
+  contents: write # nightly compat suite
 
 
 
@@ -132,16 +137,21 @@ jobs:
       # pull it from npm at their own build time, same as this CI.
       - name: Publish engine bundle branch (dist)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           rm -rf app/dist/libcurl
+          # Fresh repo in a temp dir: only the dist files land on the
+          # branch, no build intermediates from the checkout worktree.
+          rm -rf /tmp/bundle && mkdir -p /tmp/bundle
+          cp -r app/dist/. /tmp/bundle/
+          cd /tmp/bundle
+          git init -q -b dist .
           git config user.name "zeolite-ci"
           git config user.email "ci@lobsterbrowse.invalid"
-          git checkout --orphan dist
-          git rm -rf --quiet . || true
-          cp -r app/dist/. .
           git add -A
-          git commit -m "engine bundle: build ${GITHUB_RUN_ID}"
-          git push -f origin HEAD:dist
+          git commit -q -m "engine bundle: build ${GITHUB_RUN_ID}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/lobsterbs/Zeolite.git" HEAD:dist
 
   compat:
     # Nightly only: needs a built engine. Phase 1 gate: YouTube + Reddit
