@@ -545,6 +545,7 @@ mod tests {
             block_hosts: vec!["ads.example.net".into(), "tracker.io".into()],
             ..cfg()
         };
+        let expected_kept = c.encode_url("https://img.example.com/ok.png");
         let mut r = Rewriter::new(c);
         r.set_base("https://example.com/");
         let out = r.process(
@@ -560,7 +561,7 @@ mod tests {
         );
         assert!(!out.contains("pixel.gif"), "blocked img dropped: {}", out);
         assert!(
-            out.contains(&c.encode_url("https://img.example.com/ok.png")) || out.contains("/j/"),
+            out.contains(&expected_kept) || out.contains("/j/"),
             "kept img rewritten: {}",
             out
         );
