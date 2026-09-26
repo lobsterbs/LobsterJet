@@ -56,16 +56,15 @@ function tabsEventArgs(
   kind: "created" | "updated" | "activated" | "removed",
   ev: TabsEvent
 ): unknown[] | null {
-  if (ev.type !== kind) return null;
-  switch (kind) {
+  switch (ev.type) {
     case "created":
-      return [tabView(ext, ev.tab)];
+      return kind === "created" ? [tabView(ext, ev.tab)] : null;
     case "updated":
-      return [ev.tabId, changeView(ext, ev.change), tabView(ext, ev.tab)];
+      return kind === "updated" ? [ev.tabId, changeView(ext, ev.change), tabView(ext, ev.tab)] : null;
     case "activated":
-      return [{ tabId: ev.tabId, windowId: ev.windowId }];
+      return kind === "activated" ? [{ tabId: ev.tabId, windowId: ev.windowId }] : null;
     case "removed":
-      return [ev.tabId, { windowId: ev.windowId, isWindowClosing: false }];
+      return kind === "removed" ? [ev.tabId, { windowId: ev.windowId, isWindowClosing: false }] : null;
   }
 }
 
