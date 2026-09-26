@@ -51,6 +51,9 @@ pub struct Rewriter {
     buf: String,
     /// Lowercase name of the current tag while in Tag/Raw state.
     cur_tag: String,
+    /// The element being entered was dropped (blocked host): its raw
+    /// content and close tag must be swallowed, not emitted.
+    drop_raw: bool,
     injected: bool,
 }
 
@@ -62,6 +65,7 @@ impl Rewriter {
             st: St::Text,
             buf: String::new(),
             cur_tag: String::new(),
+            drop_raw: false,
             injected: false,
         }
     }
@@ -82,8 +86,9 @@ impl Rewriter {
     }
 
     fn enc(&self, url: &str) -> String {
-        if url.starts_with(&self.cfg.origin) {
-            // Already engine-local (nested rewriting): keep as-is.
+        // Already engine-local (nested rewriting): keep as-is. An empty
+        // origin matches every URL, so it must not take this branch.
+        if !self.cfg.origin.is_empty() && url.starts_with(&self.cfg.origin) {
             return url.to_string();
         }
         let abs = resolve(url, &self.base);
@@ -170,8 +175,15 @@ impl Rewriter {
                             if self.cur_tag == "head" || self.cur_tag == "html" {
                                 out.push_str(&self.emit_injections());
                             }
-                            self.st = if raw { St::Raw } else { St::Text };
-                            self.cur_tag.clear();
+                            if raw {
+                                // Raw state needs cur_tag to locate the
+                                // close tag and pick the rewrite pass.
+                                self.st = St::Raw;
+                                self.drop_raw = rewritten.is_empty();
+                            } else {
+                                self.st = St::Text;
+                                self.cur_tag.clear();
+                            }
                         }
                         None => break, // incomplete tag: wait for more input
                     }
@@ -181,27 +193,30 @@ impl Rewriter {
                     let Some(ci) = find_ci(&self.buf, &close) else {
                         break;
                     };
-                    let raw = self.buf[..ci].to_string();
-                    if self.cur_tag == "style" && self.cfg.rewrite_css {
-                        out.push_str(&css::rewrite_stylesheet(&raw, &|u| self.enc(u)));
-                    } else if self.cur_tag == "script" && self.cfg.rewrite_js_literals {
-                        out.push_str(&crate::js::rewrite_script(&raw, &|u| self.enc(u)));
-                    } else {
-                        out.push_str(&raw);
-                    }
-                    // Emit the close tag verbatim, return to Text.
+                    // The close tag's '>' (or a partial close: keep it).
                     let after = self.buf[ci..].find('>').map(|i| ci + i + 1);
-                    match after {
-                        Some(end) => {
-                            out.push_str(&self.buf[ci..end]);
-                            self.buf.drain(..end);
+                    let Some(end) = after else {
+                        break;
+                    };
+                    if self.drop_raw {
+                        // Blocked element: swallow content + close tag.
+                        self.buf.drain(..end);
+                    } else {
+                        let raw = self.buf[..ci].to_string();
+                        if self.cur_tag == "style" && self.cfg.rewrite_css {
+                            out.push_str(&css::rewrite_stylesheet(&raw, &|u| self.enc(u)));
+                        } else if self.cur_tag == "script" && self.cfg.rewrite_js_literals {
+                            out.push_str(&crate::js::rewrite_script(&raw, &|u| self.enc(u)));
+                        } else {
+                            out.push_str(&raw);
                         }
-                        None => {
-                            out.push_str(close.as_str());
-                            self.buf.drain(..ci + close.len());
-                        }
+                        // Emit the close tag verbatim, return to Text.
+                        out.push_str(&self.buf[ci..end]);
+                        self.buf.drain(..end);
                     }
                     self.st = St::Text;
+                    self.drop_raw = false;
+                    self.cur_tag.clear();
                 }
             }
         }
@@ -266,7 +281,7 @@ impl Rewriter {
         let mut rest = &raw[name_end..];
         let mut first_url: Option<String> = None;
         while let Some(attr) = next_attr(rest) {
-            let (consumed, attr_name, attr_value, quoted) = attr;
+            let (consumed, lead_ws, attr_name, attr_value, quote) = attr;
             let lower = attr_name.to_ascii_lowercase();
             match attr_value {
                 Some(v) => {
@@ -285,13 +300,17 @@ impl Rewriter {
                     } else {
                         None
                     };
+                    // Whitespace between attributes must survive the
+                    // rewrite or tags come out as `<imgsrc=...`.
+                    out.push_str(&lead_ws);
                     out.push_str(&format_attr(
                         &attr_name,
                         newv.as_deref().unwrap_or(&v),
-                        quoted,
+                        quote,
                     ));
                 }
                 None => {
+                    out.push_str(&lead_ws);
                     out.push_str(attr_name.trim_end());
                 }
             }
@@ -374,11 +393,12 @@ fn eat_marker(buf: &mut String, out: &mut String, marker: &str) -> bool {
 }
 
 /// Pull one attribute (name, optional =value) off the front of s.
-/// Returns (bytes consumed, name, Some(value), was_quoted); None when
-/// the remaining text is not an attribute (tag end).
-fn next_attr(s: &str) -> Option<(usize, String, Option<String>, bool)> {
+/// Returns (bytes consumed, leading whitespace, name, Some(value),
+/// quote char when the value was quoted); None when the remaining text
+/// is not an attribute (tag end).
+fn next_attr(s: &str) -> Option<(usize, String, String, Option<String>, Option<char>)> {
     let trimmed = s.trim_start();
-    let lead = s.len() - trimmed.len();
+    let lead_ws = s[..s.len() - trimmed.len()].to_string();
     if trimmed.is_empty() || trimmed.starts_with('>') || trimmed.starts_with("/>") {
         return None;
     }
@@ -394,33 +414,41 @@ fn next_attr(s: &str) -> Option<(usize, String, Option<String>, bool)> {
         let vrest = &trimmed[eq..];
         let vstart = vrest.trim_start();
         let ws = vrest.len() - vstart.len();
-        let (val, consumed_v, quoted) = if vstart.starts_with('"') || vstart.starts_with('\'') {
+        let (val, consumed_v, quote) = if vstart.starts_with('"') || vstart.starts_with('\'') {
             let q = vstart.as_bytes()[0] as char;
-            {
-                // Value not closed yet.
-                let i = vstart[1..].find(q)?;
-                (vstart[1..1 + i].to_string(), ws + 1 + i + 2, true)
-            }
+            // Value not closed yet.
+            let i = vstart[1..].find(q)?;
+            (vstart[1..1 + i].to_string(), ws + 1 + i + 1, Some(q))
         } else {
             let end = vstart
                 .find(|c: char| c.is_ascii_whitespace() || c == '>')
                 .unwrap_or(vstart.len());
-            (vstart[..end].to_string(), ws + end, false)
+            (vstart[..end].to_string(), ws + end, None)
         };
-        let total = lead + eq + consumed_v;
-        return Some((total, name, Some(val), quoted));
+        let total = lead_ws.len() + eq + consumed_v;
+        return Some((total, lead_ws, name, Some(val), quote));
     }
     // Boolean attribute (no value).
-    let total = lead + name_end;
-    Some((total, name, None, false))
+    let total = lead_ws.len() + name_end;
+    Some((total, lead_ws, name, None, None))
 }
 
-fn format_attr(name: &str, value: &str, quoted: bool) -> String {
-    if quoted {
-        let esc = value.replace('&', "&amp;").replace('"', "&quot;");
-        format!("{}=\"{}\"", name.trim_end(), esc)
-    } else {
-        format!("{}={}", name.trim_end(), value)
+/// Re-emit an attribute, preserving the original quoting style so the
+/// output stays byte-close to the input.
+fn format_attr(name: &str, value: &str, quote: Option<char>) -> String {
+    let name = name.trim_end();
+    match quote {
+        Some('"') => format!(
+            "{}=\"{}\"",
+            name,
+            value.replace('&', "&amp;").replace('"', "&quot;")
+        ),
+        Some('\'') => format!(
+            "{}='{}'",
+            name,
+            value.replace('&', "&amp;").replace('\'', "&#39;")
+        ),
+        _ => format!("{}={}", name, value),
     }
 }
 
@@ -444,7 +472,9 @@ mod tests {
         // Split mid-tag to prove streaming across chunk boundaries.
         let a = r.process("<html><head></head><body><a href='foo");
         let b = r.process(".html'>x</a><img src=\"/a.png\"></body></html>");
-        assert!(a.is_empty());
+        // Everything before the incomplete tag flushes immediately; only
+        // the partial `<a href='foo` is retained across the boundary.
+        assert_eq!(a, "<html><head></head><body>");
         let full = format!("{}{}", a, b);
         let enc = |u: &str| {
             let abs = resolve(u, base);

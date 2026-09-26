@@ -2,13 +2,20 @@
 //! `srcset` handled specially (comma-separated candidate list).
 
 /// URL-bearing attributes per tag (lowercase tag, lowercase attr).
+/// `href`/`src` are scoped to the tags that actually load or navigate:
+/// a blanket match would rewrite e.g. `<a src>` or `<video href>`, which
+/// carry no URL semantics in HTML.
 pub fn is_url_attr(tag: &str, attr: &str) -> bool {
     match attr {
-        "href" | "src" | "action" | "formaction" | "poster" | "background" | "cite" => true,
+        "href" => matches!(tag, "a" | "area" | "link" | "base"),
+        "src" => matches!(
+            tag,
+            "img" | "script" | "iframe" | "source" | "video" | "audio" | "embed" | "track" | "input"
+        ),
+        "action" | "formaction" | "poster" | "background" | "cite" | "lowsrc" => true,
         "data" => matches!(tag, "object"),
         "code" | "codebase" => matches!(tag, "applet"),
         "srcset" | "imagesrcset" => matches!(tag, "img" | "source"),
-        "lowsrc" => true,
         _ => false,
     }
 }

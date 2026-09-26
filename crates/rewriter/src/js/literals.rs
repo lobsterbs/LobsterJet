@@ -134,7 +134,9 @@ mod tests {
         let out = rewrite_script(js, &|u| format!("[{}]", u));
         assert!(out.contains(r#""[https://example.com/x]""#), "{}", out);
         assert!(out.contains("'hello'"));
-        assert!(out.contains(r#""[https://cdn.example.net/y]""#), "{}", out);
+        // Protocol-relative literals are rewritten as-is: absolutizing
+        // them is the enc callback's job (it knows the page scheme).
+        assert!(out.contains(r#""[//cdn.example.net/y]""#), "{}", out);
     }
 
     #[test]

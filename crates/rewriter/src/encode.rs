@@ -76,6 +76,16 @@ pub fn b64u_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// RFC 3986 scheme: ALPHA followed by ALPHA / DIGIT / "+" / "-" / ".".
+fn is_scheme(s: &str) -> bool {
+    let mut b = s.bytes();
+    match b.next() {
+        Some(first) if first.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    b.all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'-' | b'.'))
+}
+
 /// Resolve `url` against `base` (the current page's real destination URL).
 /// Hand-rolled to keep the wasm bundle free of a URL crate; covers the
 /// forms that occur in real markup (absolute, protocol-relative,
@@ -86,9 +96,12 @@ pub fn resolve(url: &str, base: &str) -> String {
         return url.to_string();
     }
     // Engine-local paths and other non-URLs pass through untouched.
-    let lower = url.as_bytes();
-    let has_scheme =
-        lower.len() > 7 && lower[..8].iter().all(|b| b.is_ascii_alphanumeric()) && lower[7] == b':';
+    // A scheme is ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":" per RFC
+    // 3986; anything else falls through to relative resolution.
+    let has_scheme = match url.find(':') {
+        Some(ci) => is_scheme(&url[..ci]),
+        None => false,
+    };
     if has_scheme
         || url.starts_with("data:")
         || url.starts_with("blob:")
@@ -190,7 +203,7 @@ mod tests {
 
     #[test]
     fn b64_roundtrip() {
-        for s in ["", "a", "ab", "abc", "https://example.com/x?y=1", "ünïcode"] {
+        for s in ["", "a", "ab", "abc", "https://example.com/x?y=1", "Ã¼nÃ¯code"] {
             assert_eq!(
                 b64u_decode(&b64u_encode(s.as_bytes())).unwrap(),
                 s.as_bytes()
