@@ -85,11 +85,16 @@ export class PermissionRegistry {
 
   async request(ext: ExtensionRecord, perms: ApiPermissions): Promise<boolean> {
     if (!this.backend) return false;
+    /* The backend mutates the live record object this closure holds,
+       so the delta must be computed against a snapshot taken BEFORE
+       the grant, or onAdded never fires. */
+    const prior = new Set(ext.permissions);
+    const priorHost = new Set(ext.hostPermissions);
     const after = await this.backend(ext.id, "grant", perms);
     if (!after) return false;
     const newlyGranted =
-      (perms.permissions ?? []).some((p) => !ext.permissions.includes(p)) ||
-      (perms.origins ?? []).some((p) => !ext.hostPermissions.includes(p));
+      (perms.permissions ?? []).some((p) => !prior.has(p)) ||
+      (perms.origins ?? []).some((p) => !priorHost.has(p));
     this.views.set(ext.id, after);
     if (newlyGranted) this.fire(this.added, perms);
     return true;
@@ -97,11 +102,13 @@ export class PermissionRegistry {
 
   async remove(ext: ExtensionRecord, perms: ApiPermissions): Promise<boolean> {
     if (!this.backend) return false;
+    const prior = new Set(ext.permissions);
+    const priorHost = new Set(ext.hostPermissions);
     const after = await this.backend(ext.id, "revoke", perms);
     if (!after) return false;
     const wasGranted =
-      (perms.permissions ?? []).some((p) => ext.permissions.includes(p)) ||
-      (perms.origins ?? []).some((p) => ext.hostPermissions.includes(p));
+      (perms.permissions ?? []).some((p) => prior.has(p)) ||
+      (perms.origins ?? []).some((p) => priorHost.has(p));
     this.views.set(ext.id, after);
     if (wasGranted) this.fire(this.removed, perms);
     return true;
