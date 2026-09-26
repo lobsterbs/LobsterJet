@@ -432,7 +432,9 @@ fn check_auth(
     common: &[(ExtensionId, Vec<u8>)],
 ) -> AuthState {
     let mut need_password = shared.password.is_some();
-    let mut need_key = keyauth.is_some();
+    // The server decides what auth it requires; a client that never
+    // offers the extension must not dodge it.
+    let mut need_key = shared.cfg.key_hex.is_some();
     for (id, meta) in common {
         match id {
             ExtensionId::PasswordAuth => {
@@ -444,12 +446,14 @@ fn check_auth(
                 }
             }
             ExtensionId::KeyAuth => {
-                need_key = false;
                 if let Some(ka) = keyauth {
+                    need_key = false;
                     if !ka.verify_payload(meta) {
                         return AuthState::Reject(CloseReason::AuthBadSignature);
                     }
                 }
+                // No server-side key: the extension proves nothing;
+                // keep requiring auth.
             }
             _ => {}
         }
@@ -1106,7 +1110,8 @@ mod tests {
     #[test]
     fn hex_decode_basics() {
         assert_eq!(hex_decode("00ff").unwrap(), vec![0u8, 255u8]);
-        assert!(hex_decode("0f").is_none());
+        assert_eq!(hex_decode("0f").unwrap(), vec![15u8]);
+        assert!(hex_decode("f").is_none()); // odd length
         assert!(hex_decode("zz").is_none());
     }
 
@@ -1383,7 +1388,9 @@ mod tests {
             }
         }
         assert_eq!(got, vec![vec![1, 2, 3], vec![4]]);
-        assert_eq!(pkt_ctr.load(Ordering::Relaxed), 2);
+        // The counter is bidirectional: 2 client->upstream datagrams
+        // plus the 2 echoed back.
+        assert_eq!(pkt_ctr.load(Ordering::Relaxed), 4);
         relay.abort();
         echo_task.abort();
     }
